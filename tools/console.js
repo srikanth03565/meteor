@@ -837,14 +837,14 @@ _.extend(Console.prototype, {
         self.options({ bulletPoint: checkmark }));
   },
 
-  // A wrapper around Console.info. Prints the message out in red (if pretty)
+  // Wrapper around Console.info. Prints the message out in red (if pretty)
   // with the ascii x as the bullet point in front of it.
   failInfo: function (message) {
     var self = this;
     return self._fail(message, self.info);
   },
 
-  // A wrapper around Console.warn. Prints the message out in red (if pretty)
+  // Wrapper around Console.warn. Prints the message out in red (if pretty)
   // with the ascii x as the bullet point in front of it.
   failWarn: function (message) {
     var self = this;
@@ -863,6 +863,25 @@ _.extend(Console.prototype, {
     return printFn(
         chalk.red(message),
         self.options({ bulletPoint: xmark }));
+  },
+
+  // Wrapper around Console.warn that prints a large "WARNING" label in front.
+  labelWarn: function (message) {
+    var self = this;
+
+    return self.warn(message, Console.options({ bulletPoint: "WARNING" }));
+  },
+
+  // Wrapper around Console.error that prints an " => " in front.
+  arrowError: function (message) {
+    var self = this;
+    return self.error(message, Console.options({ bulletPoint: " =>" }));
+  },
+
+  // Wrapper around Console.info that prints an " => " in front.
+  arrowInfo: function (message) {
+    var self = this;
+    return self.info(message, Console.options({ bulletPoint: " =>" }));
   },
 
   // A wrapper around console.error. Given an error and some background
