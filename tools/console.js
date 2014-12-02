@@ -85,7 +85,8 @@ var toFixedLength = function (text, length) {
   return text;
 };
 
-// No-op progress display, that means we don't have to handle the 'no progress display' case
+// No-op progress display, that means we don't have to handle the 'no progress
+// display' case
 var ProgressDisplayNone = function () {
 };
 
@@ -579,6 +580,16 @@ _.extend(Console.prototype, {
     self.verbose = verbose;
   },
 
+  // Get the current width of the Console.
+  width: function () {
+    var width = 80;
+    var stream = process.stdout;
+    if (stream && stream.isTTY && stream.columns) {
+      width = stream.columns;
+    }
+    return width;
+  },
+
   // This can be called during long lived operations; it will keep the spinner spinning.
   // (This code used to be in Patience.nudge)
   //
@@ -958,6 +969,40 @@ _.extend(Console.prototype, {
     return chalk.bold(message);
   },
 
+  // Prints a two column table in a nice format:
+  //  The first column is printed entirely, the second only as space permits
+  printTwoColumns : function (rows, options) {
+    var self = this;
+    options = options || {};
+
+    var longest = '';
+    _.each(rows, function (row) {
+      var col0 = row[0] || '';
+      if (col0.length > longest.length)
+        longest = col0;
+    });
+
+    var pad = longest.replace(/./g, ' ');
+    var width = self.width();
+
+    var out = '';
+    _.each(rows, function (row) {
+      var col0 = row[0] || '';
+      var col1 = row[1] || '';
+      var line = self.bold(col0) + pad.substr(col0.length);
+      line += "  " + col1;
+      if (line.length > width) {
+        line = line.substr(0, width - 3) + '...';
+      }
+      out += line + "\n";
+    });
+
+    var level = options.level || self.LEVEL_INFO;
+    self._print(level, out);
+
+    return out;
+  },
+
   // Format logs according to the spec in utils.
   _format: function (logArguments) {
     return util.format.apply(util, logArguments);
@@ -987,6 +1032,7 @@ _.extend(Console.prototype, {
   // When printing commands in-line, it is best to wrap commands in with Console.command
   // to make sure that they don't get line-wrapped. See Console.command for more details.
   _wrapText: function (text, options) {
+    var self = this;
     options = options || {};
 
     // Compute the maximum offset on the bulk of the message.
@@ -1000,7 +1046,7 @@ _.extend(Console.prototype, {
 
     // Get the maximum width, or if we are not running in a terminal (self-test,
     // for exmaple), default to 80 columns.
-    var max = process.stdout.columns || 80;
+    var max = self.width();
 
     // Wrap the text using the npm wordwrap library.
     var wrappedText = wordwrap(maxIndent, max)(text);
@@ -1090,8 +1136,6 @@ _.extend(Console.prototype, {
     self._progressDisplay = newProgressDisplay;
   }
 });
-
-Console.prototype.warning = Console.prototype.warn;
 
 // options:
 //   - echo (boolean): defaults to true

@@ -1109,7 +1109,7 @@ main.registerCommand({
         rows.push(row);
       });
 
-      utils.printTwoColumns(rows);
+      Console.printTwoColumns(rows);
     }
   }
 
