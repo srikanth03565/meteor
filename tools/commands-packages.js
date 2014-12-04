@@ -1978,7 +1978,7 @@ main.registerCommand({
     });
   });
   if (messages.hasMessages()) {
-    Console.arrowError("Errors while parsing arguments:");
+    Console.arrowError("Errors while parsing arguments:", 1);
     Console.printMessages(messages);
     explainIfRefreshFailed();  // this is why we're not using captureAndExit
     return 1;
@@ -1991,7 +1991,7 @@ main.registerCommand({
     projectContext.prepareProjectForBuild();
   });
   if (messages.hasMessages()) {
-    Console.arrowError("Errors while adding packages:");
+    Console.arrowError("Errors while adding packages:", 1);
     Console.printMessages(messages);
     explainIfRefreshFailed();  // this is why we're not using captureAndExit
     return 1;

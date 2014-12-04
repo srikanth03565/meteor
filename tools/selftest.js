@@ -1686,26 +1686,24 @@ var runTests = function (options) {
       var frames = parseStack.parse(failure);
       var relpath = path.relative(files.getCurrentToolsDir(),
                                   frames[0].file);
-      var arrow = "  => ";
-      Console.rawError(arrow + failure.reason + " at " +
+      Console.rawError("  => " + failure.reason + " at " +
                     relpath + ":" + frames[0].line);
       if (failure.reason === 'no-match') {
-        Console.error("Pattern: " + failure.details.pattern,
-                      Console.options({ bulletPoint: arrow }));
+        Console.arrowError("Pattern: " + failure.details.pattern, 2);
       }
       if (failure.reason === "wrong-exit-code") {
         var s = function (status) {
           return status.signal || ('' + status.code) || "???";
         };
 
-        Console.rawError(arrow + "Expected: " + s(failure.details.expected) +
+        Console.rawError("  => " + "Expected: " + s(failure.details.expected) +
                       "; actual: " + s(failure.details.actual));
       }
       if (failure.reason === 'expected-exception') {
       }
       if (failure.reason === 'not-equal') {
         Console.rawError(
-          arrow + "Expected: " + JSON.stringify(failure.details.expected) +
+          "  => " + "Expected: " + JSON.stringify(failure.details.expected) +
           "; actual: " + JSON.stringify(failure.details.actual));
       }
 
@@ -1713,13 +1711,11 @@ var runTests = function (options) {
         failure.details.run.outputLog.end();
         var lines = failure.details.run.outputLog.get();
         if (! lines.length) {
-          Console.error("No output", Console.options({ bulletPoint: arrow }));
+          Console.arrowError("No output", 2);
         } else {
           var historyLines = options.historyLines || 100;
 
-          Console.error(
-            "Last " + historyLines + " lines:",
-            Console.options({ bulletPoint: arrow })
+          Console.arrowError("Last " + historyLines + " lines:", 2
           );
           _.each(lines.slice(-historyLines), function (line) {
             Console.rawError("  " +
@@ -1731,9 +1727,7 @@ var runTests = function (options) {
       }
 
       if (failure.details.messages) {
-        Console.error(
-          "Errors while building:",
-          Console.options({ bulletPoint: arrow }));
+        Console.arrowError("Errors while building:", 2);
         Console.rawError(failure.details.messages.formatMessages());
       }
     } else {

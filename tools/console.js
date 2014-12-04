@@ -69,7 +69,7 @@ var spacesString = function (length) {
   }
   return spacesArray.substring(0, length);
 };
-var ARROW = " => ";
+var ARROW = "=> ";
 
 
 var toFixedLength = function (text, length) {
@@ -885,17 +885,46 @@ _.extend(Console.prototype, {
     return self.warn(message, self.options({ bulletPoint: "WARNING" }));
   },
 
-  // Wrapper around Console.error that prints an " => " in front.
-  arrowError: function (message) {
+  // Wrappers around Console functions to prints an "=> " in front. Optional
+  // indent to indent the arrow.
+  arrowError: function (message, indent) {
     var self = this;
-    return self.error(message, self.options({ bulletPoint: ARROW }));
+    return self._arrowPrint(self.error, message, indent);
+  },
+  arrowWarn: function (message, indent) {
+    var self = this;
+    return self._arrowPrint(self.warn, message, indent);
+  },
+  arrowInfo: function (message, indent) {
+    var self = this;
+    return self._arrowPrint(self.info, message, indent);
+  },
+  _arrowPrint: function(printFn, message,indent) {
+    var myIndent = Array(indent + 1).join(" ");
+    return printFn(
+      message,
+      self.options({ bulletPoint: myIndent + ARROW }));
+  },
+
+
+  // Wrapper around Console.error that prints an " => " in front.
+  arrowError0: function (message) {
+    var self = this;
+    return self.error(message, self.options({ bulletPoint: "=> " }));
   },
 
   // Wrapper around Console.info that prints an " => " in front.
-  arrowInfo: function (message) {
+  arrowInfo0: function (message) {
     var self = this;
-    return self.info(message, self.options({ bulletPoint: ARROW }));
+    return self.info(message, self.options({ bulletPoint: "=> " }));
   },
+
+  // Wrapper around Console.warn that prints an " => " in front.
+  arrowWarn0: function (message) {
+    var self = this;
+    return self.warn(message, self.options({ bulletPoint: "=> " }));
+  },
+
 
   // A wrapper around console.error. Given an error and some background
   // information, print out the correct set of messages depending on verbose

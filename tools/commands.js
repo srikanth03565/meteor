@@ -1995,7 +1995,20 @@ main.registerCommand({
   Console.info(p('email') + " " + p('port') + " " + p('changed') +
                        " " + p('args'));
   if (options.url)
-    Console.info('url\n');
+    Console.info('url');
   if (options['delete'])
-    Console.info('delete\n');
+    Console.info('delete');
+});
+
+main.registerCommand({
+  name: 'print',
+  maxArgs: 2,
+  hidden: true,
+  catalogRefresh: new catalog.Refresh.Never()
+}, function (options) {
+  try {
+    throw new Error("FOOBAR");
+  } catch (e) {
+    Console.error(e);
+  }
 });
