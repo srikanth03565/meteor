@@ -259,7 +259,8 @@ exports.validatePackageNameOrExit = function (packageName, options) {
   } catch (e) {
     if (!e.versionParserError)
       throw e;
-    process.stderr.write("Error: " + e.message + "\n");
+    var Console = require('./console.js').Console;
+    Console.error(e.message, Console.options({ bulletPoint: "Error: " }));
     // lazy-load main: old bundler tests fail if you add a circular require to
     // this file
     var main = require('./main.js');
