@@ -69,6 +69,8 @@ var spacesString = function (length) {
   }
   return spacesArray.substring(0, length);
 };
+var ARROW = " => ";
+
 
 var toFixedLength = function (text, length) {
   text = text || "";
@@ -880,19 +882,19 @@ _.extend(Console.prototype, {
   labelWarn: function (message) {
     var self = this;
 
-    return self.warn(message, Console.options({ bulletPoint: "WARNING" }));
+    return self.warn(message, self.options({ bulletPoint: "WARNING" }));
   },
 
   // Wrapper around Console.error that prints an " => " in front.
   arrowError: function (message) {
     var self = this;
-    return self.error(message, Console.options({ bulletPoint: " =>" }));
+    return self.error(message, self.options({ bulletPoint: ARROW }));
   },
 
   // Wrapper around Console.info that prints an " => " in front.
   arrowInfo: function (message) {
     var self = this;
-    return self.info(message, Console.options({ bulletPoint: " =>" }));
+    return self.info(message, self.options({ bulletPoint: ARROW }));
   },
 
   // A wrapper around console.error. Given an error and some background
@@ -924,7 +926,7 @@ _.extend(Console.prototype, {
     var self = this;
 
     if (messages.hasMessages()) {
-      self._print(null, "\n" + messages.formatMessages());
+      self.error("\n" + messages.formatMessages());
     }
   },
 

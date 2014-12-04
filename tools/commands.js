@@ -1993,7 +1993,7 @@ main.registerCommand({
   };
 
   Console.info(p('email') + " " + p('port') + " " + p('changed') +
-                       " " + p('args') + "\n");
+                       " " + p('args'));
   if (options.url)
     Console.info('url\n');
   if (options['delete'])
