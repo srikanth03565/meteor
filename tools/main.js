@@ -1260,8 +1260,8 @@ Fiber(function () {
     // For commands that work with apps, if we have overridden the
     // app's usual release by using a checkout, print a reminder banner.
     Console.arrowWarn(
-      "Running Meteor from a checkout -- overrides project version (" +
-       appReleaseFile.displayReleaseName + ")");
+      "Running Meteor from a checkout -- overrides project version " +
+      Console.command("(" + appReleaseFile.displayReleaseName + ")"));
   }
 
   // Now that we're ready to start executing the command, if we are in
