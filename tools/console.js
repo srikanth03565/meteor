@@ -881,7 +881,6 @@ _.extend(Console.prototype, {
   // Wrapper around Console.warn that prints a large "WARNING" label in front.
   labelWarn: function (message) {
     var self = this;
-
     return self.warn(message, self.options({ bulletPoint: "WARNING" }));
   },
 
@@ -889,42 +888,24 @@ _.extend(Console.prototype, {
   // indent to indent the arrow.
   arrowError: function (message, indent) {
     var self = this;
-    return self._arrowPrint(self.error, message, indent);
+    return self._arrowPrint("error", message, indent);
   },
   arrowWarn: function (message, indent) {
     var self = this;
-    return self._arrowPrint(self.warn, message, indent);
+    return self._arrowPrint("warn", message, indent);
   },
   arrowInfo: function (message, indent) {
     var self = this;
-    return self._arrowPrint(self.info, message, indent);
+    return self._arrowPrint("info", message, indent);
   },
-  _arrowPrint: function(printFn, message,indent) {
+  _arrowPrint: function(printFn, message, indent) {
+    var self = this;
+    indent = indent || 0;
     var myIndent = Array(indent + 1).join(" ");
-    return printFn(
+    return self[printFn](
       message,
       self.options({ bulletPoint: myIndent + ARROW }));
   },
-
-
-  // Wrapper around Console.error that prints an " => " in front.
-  arrowError0: function (message) {
-    var self = this;
-    return self.error(message, self.options({ bulletPoint: "=> " }));
-  },
-
-  // Wrapper around Console.info that prints an " => " in front.
-  arrowInfo0: function (message) {
-    var self = this;
-    return self.info(message, self.options({ bulletPoint: "=> " }));
-  },
-
-  // Wrapper around Console.warn that prints an " => " in front.
-  arrowWarn0: function (message) {
-    var self = this;
-    return self.warn(message, self.options({ bulletPoint: "=> " }));
-  },
-
 
   // A wrapper around console.error. Given an error and some background
   // information, print out the correct set of messages depending on verbose

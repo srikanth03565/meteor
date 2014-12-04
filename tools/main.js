@@ -926,7 +926,7 @@ Fiber(function () {
             "you don't have that version of Meteor installed, and we were",
             "unable to contact Meteor's update servers to find out about it.",
             "Please edit the .meteor/release file in the project and change",
-            "it to a valid Meteorrelease, or go online.");
+            "it to a valid Meteor release, or go online.");
         } else {
           Console.error(
             "This project says that it uses " + displayRelease + ", but you",
