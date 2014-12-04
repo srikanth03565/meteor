@@ -2006,9 +2006,8 @@ main.registerCommand({
   hidden: true,
   catalogRefresh: new catalog.Refresh.Never()
 }, function (options) {
-  try {
-    throw new Error("FOOBAR");
-  } catch (e) {
-    Console.error(e);
-  }
+    Console.error(
+      "You must specify a Meteor version with --release when you work with",
+      "this project. It was created from an unreleased Meteor checkout and",
+      "doesn't have a version associated with it.");
 });
