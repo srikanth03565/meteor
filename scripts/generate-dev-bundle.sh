@@ -146,7 +146,6 @@ delete wordwrap/test
 # dedupe isn't good enough to eliminate 3 copies of esprima, sigh.
 find . -path '*/esprima/test' | xargs rm -rf
 find . -path '*/esprima-fb/test' | xargs rm -rf
-find . -path '*
 
 # dedupe isn't good enough to eliminate 4 copies of JSONstream, sigh.
 find . -path '*/JSONStream/test/fixtures' | xargs rm -rf
