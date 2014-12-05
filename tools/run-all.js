@@ -129,7 +129,7 @@ _.extend(Runner.prototype, {
     // print the banner only once we've successfully bound the port
     if (! self.quiet && ! self.stopped) {
       runLog.log("[[[[[ " + self.banner + " ]]]]]\n");
-      runLog.log("=> Started proxy.");
+      runLog.log("Started proxy.",  { arrow: true });
     }
 
     self._startMongoAsync();
@@ -142,7 +142,7 @@ _.extend(Runner.prototype, {
     if (! self.stopped && self.httpProxy) {
       self.httpProxy.start();
       if (! self.quiet) {
-        runLog.log("=> Started http proxy.");
+        runLog.log("Started http proxy.", { arrow: true });
       }
     }
 
@@ -153,7 +153,7 @@ _.extend(Runner.prototype, {
           extraRunner.start();
         });
         if (! self.quiet && ! self.stopped)
-          runLog.log("=> Started " + title + ".");
+          runLog.log("Started " + title + ".",  { arrow: true });
       }
     });
 
@@ -162,18 +162,20 @@ _.extend(Runner.prototype, {
         self.appRunner.start();
       });
       if (! self.quiet && ! self.stopped)
-        runLog.log("=> Started your app.");
+        runLog.log("Started your app.",  { arrow: true });
     }
 
-    if (! self.stopped && ! self.quiet)
-      runLog.log("\n=> App running at: " + self.rootUrl);
+    if (! self.stopped && ! self.quiet) {
+      runLog.log("");
+      runLog.log("App running at: " + self.rootUrl,  { arrow: true });
+    }
 
     if (self.selenium && ! self.stopped) {
       buildmessage.enterJob({ title: "Starting Selenium" }, function () {
         self.selenium.start();
       });
       if (! self.quiet && ! self.stopped)
-        runLog.log("=> Started Selenium.");
+        runLog.log("Started Selenium.", { arrow: true });
     }
 
     // XXX It'd be nice to (cosmetically) handle failure better. Right
@@ -191,7 +193,7 @@ _.extend(Runner.prototype, {
   _startMongoFuture: function () {
     this.mongoRunner.start();
     if (! this.stopped && ! this.quiet) {
-      runLog.log("=> Started MongoDB.");
+      runLog.log("Started MongoDB.",  { arrow: true });
     }
   }.future(),
 
