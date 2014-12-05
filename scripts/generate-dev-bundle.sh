@@ -14,54 +14,6 @@ source "$(dirname $0)/build-dev-bundle-common.sh"
 echo CHECKOUT DIR IS "$CHECKOUT_DIR"
 echo BUILDING DEV BUNDLE "$BUNDLE_VERSION" IN "$DIR"
 
-TEMP_PREFIX="$DIR/build/prefix"
-mkdir -p $TEMP_PREFIX
-
-# Add $DIR/bin and $TEMP_PREFIX/bin to $PATH so that we can use tools
-# installed earlier when building later tools (namely, autoconf and
-# automake for watchman, and node and npm for the various NPM packages we
-# install below).
-export PATH="$DIR/bin:$PATH"
-PATH="$TEMP_PREFIX/bin:$PATH"
-
-# Build reliable versions of m4, autoconf, and automake for watchman and
-# potentially other projects.
-
-M4_VERSION="1.4.17"
-curl "http://ftp.gnu.org/gnu/m4/m4-$M4_VERSION.tar.gz" | gzip -d | tar x
-pushd "m4-$M4_VERSION"
-./configure --prefix="$TEMP_PREFIX"
-make install
-popd
-
-AUTOCONF_VERSION="2.69"
-curl "http://ftp.gnu.org/gnu/autoconf/autoconf-$AUTOCONF_VERSION.tar.gz" | gzip -d | tar x
-pushd "autoconf-$AUTOCONF_VERSION"
-./configure --prefix="$TEMP_PREFIX"
-make install
-popd
-
-AUTOMAKE_VERSION="1.14"
-curl "http://ftp.gnu.org/gnu/automake/automake-$AUTOMAKE_VERSION.tar.gz" | gzip -d | tar x
-pushd "automake-$AUTOMAKE_VERSION"
-./configure --prefix="$TEMP_PREFIX"
-make install
-popd
-
-WATCHMAN_VERSION="3.0.0"
-curl "https://codeload.github.com/facebook/watchman/tar.gz/v$WATCHMAN_VERSION" | gzip -d | tar x
-pushd "watchman-$WATCHMAN_VERSION"
-./autogen.sh
-./configure --prefix="$DIR" --without-pcre
-make install
-strip "$DIR/bin/watchman"
-popd
-
-# Clean up some unnecessary megabytes of docs.
-rm -rf "$DIR/share/doc" "$DIR/share/man"
-
-which watchman
-
 # ios-sim is used to run iPhone simulator from the command-line. Doesn't make
 # sense to build it for linux.
 if [ "$OS" == "osx" ]; then
@@ -165,7 +117,6 @@ npm install
 npm dedupe
 cp -R node_modules/* "${DIR}/lib/node_modules/"
 
-
 cd "${DIR}/lib"
 
 # TODO Move this into dev-bundle-tool-package.js when it can be safely
@@ -190,6 +141,7 @@ delete browserstack-webdriver/docs
 delete browserstack-webdriver/lib/test
 
 delete sqlite3/deps
+delete word-wrap/test
 
 # dedupe isn't good enough to eliminate 3 copies of esprima, sigh.
 find . -path '*/esprima/test' | xargs rm -rf
