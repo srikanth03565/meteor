@@ -21,7 +21,7 @@ var clientAddress;
 // NOTE: This test will fail if your machine's time is skewed by more
 // than 30 minutes. This is because the `fetchAppPackageUsage` method
 // works by passing an hour time range.
-// XXX #3006 Have not managed to get this test passing since introducing
+// XXX I have not managed to get this test passing since introducing
 //     isopack-cache, though it seems to just be major server slowness
 //     and perhaps preexisting.
 selftest.define("report-stats", ["slow", "net"], function () {
@@ -47,11 +47,10 @@ selftest.define("report-stats", ["slow", "net"], function () {
 
       var run;
 
-      s.createApp("foo", "package-stats-tests");
+      s.createApp("foo", "package-stats-tests", {
+        release: useFakeRelease ? 'METEOR@v1' : undefined
+      });
       s.cd("foo");
-      if (useFakeRelease) {
-        s.write('.meteor/release', 'METEOR@v1');
-      }
 
       var projectContext = new projectContextModule.ProjectContext({
         projectDir: s.cwd

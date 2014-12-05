@@ -1059,21 +1059,7 @@ _.extend(Isopack.prototype, {
 
     // Build all of the isopackets now, so that no build step is required when
     // you're actually running meteor from a release in order to load packages.
-    // XXX This code is pretty similar to isopackets.ensureIsopacketsLoadable
-    //     and could be consolidated.
-    var isopacketCatalog = isopackets.newIsopacketBuildingCatalog();
-    var versions = {};
-    _.each(isopacketCatalog.getAllPackageNames(), function (packageName) {
-      versions[packageName] =
-        isopacketCatalog.getLatestVersion(packageName).version;
-    });
-    var packageMap = new packageMapModule.PackageMap(
-      versions, isopacketCatalog);
-    // Make an isopack cache that doesn't save isopacks to disk and has no
-    // access to versioned packages.
-    var isopackCache = new isopackCacheModule.IsopackCache({
-      packageMap: packageMap
-    });
+    var isopacketBuildContext = isopackets.makeIsopacketBuildContext();
 
     var messages = buildmessage.capture(function () {
       // We rebuild them in the order listed in ISOPACKETS. This is not strictly
@@ -1084,16 +1070,15 @@ _.extend(Isopack.prototype, {
         buildmessage.enterJob({
           title: "Compiling " + isopacketName + " packages for the tool"
         }, function () {
-          isopackCache.buildLocalPackages(packages);
+          isopacketBuildContext.isopackCache.buildLocalPackages(packages);
           if (buildmessage.jobHasMessages())
             return;
 
           var image = bundler.buildJsImage({
             name: "isopacket-" + isopacketName,
-            packageMap: packageMap,
-            isopackCache: isopackCache,
-            use: packages,
-            catalog: isopacketCatalog
+            packageMap: isopacketBuildContext.packageMap,
+            isopackCache: isopacketBuildContext.isopackCache,
+            use: packages
           }).image;
           if (buildmessage.jobHasMessages())
             return;
@@ -1151,11 +1136,4 @@ exports.OldIsopackFormatError = function () {
   // This should always be caught anywhere where it can appear (ie, anywhere
   // that isn't definitely loading something from the tropohouse).
   this.toString = function () { return "old isopack format!" };
-};
-
-exports.isopackExistsAtPath = function (thePath) {
-  // XXX COMPAT WITH 0.9.3
-  // Remove unipackage.json when no longer supported
-  return fs.existsSync(path.join(thePath, 'isopack.json')) ||
-    fs.existsSync(path.join(thePath, 'unipackage.json'));
 };

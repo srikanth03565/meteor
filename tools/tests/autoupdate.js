@@ -48,21 +48,16 @@ selftest.define("autoupdate", ['checkout'], function () {
   // manages to run. So stop mongo from starting so that it goes faster.
   s.set("MONGO_URL", "whatever");
 
-  // This makes packages not depend on meteor (specifically, makes our empty
-  // control program not depend on meteor).
-  s.set("NO_METEOR_PACKAGE", "t");
-
-  s.createApp('myapp', 'packageless');
+  s.createApp('myapp', 'packageless', { release: 'METEOR@v2' });
   s.cd('myapp', function () {
     setBanner(s, "v2", "=> New hotness v2 being downloaded.\n");
-    s.write('.meteor/release', 'METEOR@v2');
 
     // console.log("WE ARE READY NOW", s.warehouse, s.cwd)
     // require('../utils.js').sleepMs(1000*10000)
 
     // Run it and see the banner for the current version.
     run = s.run("--port", "21000");
-    run.waitSecs(5);
+    run.waitSecs(30);
     run.match("New hotness v2 being downloaded");
     run.match("running at");
     run.stop();
@@ -145,8 +140,7 @@ selftest.define("autoupdate", ['checkout'], function () {
 
     run = s.run("update");
     run.read("myapp: updated to Meteor v3.");
-    // XXX #3006 #ShowPackageChanges
-    // run.match("Your packages are at their latest compatible versions.\n");
+    run.match("Your packages are at their latest compatible versions.\n");
     run.expectExit(0);
 
     run = s.run("--version");

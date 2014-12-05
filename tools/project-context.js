@@ -55,11 +55,13 @@ var STAGE = {
 };
 
 _.extend(exports.ProjectContext.prototype, {
-  reset: function (moreOptions) {
+  reset: function (moreOptions, resetOptions) {
     var self = this;
     // Allow overriding some options until the next call to reset; used by
     // 'meteor update' code to try various values of releaseForConstraints.
     var options = _.extend({}, self.originalOptions, moreOptions);
+    // This is options that are actually directed at reset itself.
+    resetOptions = resetOptions || {};
 
     self.projectDir = options.projectDir;
     self.tropohouse = options.tropohouse || tropohouse.default;
@@ -102,6 +104,9 @@ _.extend(exports.ProjectContext.prototype, {
     // package names.
     self._upgradePackageNames = options.upgradePackageNames;
 
+    // Set when deploying to a previous Galaxy prototype.
+    self._requireControlProgram = options.requireControlProgram;
+
     // If explicitly specified as null, use no release for constraints.
     // If specified non-null, should be a release version catalog record.
     // If not specified, defaults to release.current.
@@ -132,7 +137,16 @@ _.extend(exports.ProjectContext.prototype, {
 
     // Initialized by _resolveConstraints.
     self.packageMap = null;
+    self.packageMapDelta = null;
 
+    if (resetOptions.softRefreshIsopacks && self.isopackCache) {
+      // Make sure we only hold on to one old isopack cache, not a linked list
+      // of all of them.
+      self.isopackCache.forgetPreviousIsopackCache();
+      self._previousIsopackCache = self.isopackCache;
+    } else {
+      self._previousIsopackCache = null;
+    }
     // Initialized by _buildLocalPackages.
     self.isopackCache = null;
 
@@ -346,12 +360,16 @@ _.extend(exports.ProjectContext.prototype, {
     buildmessage.assertInCapture();
 
     var depsAndConstraints = self._getRootDepsAndConstraints();
+    var cachedVersions = self.packageMapFile.getCachedVersions();
+    var anticipatedPrereleases = self._getAnticipatedPrereleases(
+      depsAndConstraints.constraints, cachedVersions);
     var resolver = self._buildResolver();
 
     var solution;
     buildmessage.enterJob("selecting package versions", function () {
       var resolveOptions = {
-        previousSolution: self.packageMapFile.getCachedVersions()
+        previousSolution: cachedVersions,
+        anticipatedPrereleases: anticipatedPrereleases
       };
       if (self._upgradePackageNames)
         resolveOptions.upgrade = self._upgradePackageNames;
@@ -370,14 +388,17 @@ _.extend(exports.ProjectContext.prototype, {
     if (!solution)
       return;  // error is already in buildmessage
 
-    // XXX #3006 Check solution.usedRCs and maybe print something about it. This
-    // code used to exist in catalog.js.
-
-    // XXX #3006 For commands other than create and test-packages, show package
-    // changes. This code used to exist in project.js.   #ShowPackageChanges
-
     self.packageMap = new packageMapModule.PackageMap(
       solution.answer, self.projectCatalog);
+
+    self.packageMapDelta = new packageMapModule.PackageMapDelta({
+      cachedVersions: cachedVersions,
+      packageMap: self.packageMap,
+      usedRCs: solution.usedRCs,
+      neededToUseUnanticipatedPrereleases:
+          solution.neededToUseUnanticipatedPrereleases,
+      anticipatedPrereleases: anticipatedPrereleases
+    });
 
     self._completedStage = STAGE.RESOLVE_CONSTRAINTS;
   },
@@ -436,7 +457,7 @@ _.extend(exports.ProjectContext.prototype, {
     self._addAppConstraints(depsAndConstraints);
     self._addLocalPackageConstraints(depsAndConstraints);
     self._addReleaseConstraints(depsAndConstraints);
-    // XXX #3006 Add a dependency on ctl
+    self._addGalaxyPrototypeConstraints(depsAndConstraints);
     return depsAndConstraints;
   },
 
@@ -475,6 +496,48 @@ _.extend(exports.ProjectContext.prototype, {
     });
   },
 
+  // We only need to build ctl if deploying to the legacy Galaxy
+  // prototype. (Note that this means that we will need a new constraint
+  // solution when deploying vs when running locally. This code will be deleted
+  // soon anyway.)
+  _addGalaxyPrototypeConstraints: function (depsAndConstraints) {
+    var self = this;
+    if (self._requireControlProgram) {
+      depsAndConstraints.deps.push('ctl');
+    }
+  },
+
+  _getAnticipatedPrereleases: function (rootConstraints, cachedVersions) {
+    var self = this;
+
+    var anticipatedPrereleases = {};
+    var add = function (packageName, version) {
+      if (! /-/.test(version)) {
+        return;
+      }
+      if (! _.has(anticipatedPrereleases, packageName)) {
+        anticipatedPrereleases[packageName] = {};
+      }
+      anticipatedPrereleases[packageName][version] = true;
+    };
+
+    // Pre-release versions that are root constraints (in .meteor/packages, in
+    // the release, or the version of a local package) are anticipated.
+    _.each(rootConstraints, function (constraintObject) {
+      _.each(constraintObject.constraints, function (alternative) {
+        var version = alternative.version;
+        version && add(constraintObject.name, version);
+      });
+    });
+
+    // Pre-release versions we decided to use in the past are anticipated.
+    _.each(cachedVersions, function (version, packageName) {
+      add(packageName, version);
+    });
+
+    return anticipatedPrereleases;
+  },
+
   _buildResolver: function () {
     var self = this;
 
@@ -508,7 +571,8 @@ _.extend(exports.ProjectContext.prototype, {
     self.isopackCache = new isopackCacheModule.IsopackCache({
       packageMap: self.packageMap,
       cacheDir: self.getProjectLocalDirectory('isopacks'),
-      tropohouse: self.tropohouse
+      tropohouse: self.tropohouse,
+      previousIsopackCache: self._previousIsopackCache
     });
 
     if (self._forceRebuildPackages) {
@@ -787,8 +851,9 @@ _.extend(exports.PackageMapFile.prototype, {
 
   // Note that this is really specific to wanting to know what versions are in
   // the .meteor/versions file on disk, which is a slightly different question
-  // from "so, what versions should I be building with?"  Usually you want a
-  // PackageMap instead!
+  // from "so, what versions should I be building with?"  Usually you want the
+  // PackageMap produced by resolving constraints instead! Returns a map from
+  // package name to version.
   getCachedVersions: function () {
     var self = this;
     return _.clone(self._versions);

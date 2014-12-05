@@ -99,8 +99,12 @@ var formatArchitecture = function (s) {
 
 // Internal use only. Makes sure that your Meteor install is totally good to go
 // (is "airplane safe"). Specifically, it:
-//    - Builds all local packages (including their npm dependencies)
-//    - Ensures that all packages in your current release are downloaded
+//    - Builds all local packages, even those you're not using in your current
+//      app. (If you're not in an app, it still does this even though there is
+//      no persistent IsopackCache, because this still causes npm dependencies
+//      to be downloaded.)
+//    - Ensures that all packages in your current release are downloaded, even
+//      those you're not using in your current app.
 //    - Ensures that all packages used by your app (if any) are downloaded
 // (It also ensures you have the dev bundle downloaded, just like every command
 // in a checkout.)
@@ -109,22 +113,67 @@ var formatArchitecture = function (s) {
 // command, then getting on an airplane.
 //
 // This does NOT guarantee a *re*build of all local packages (though it will
-// download any new dependencies). If you want to rebuild all local packages,
-// call meteor rebuild. That said, rebuild should only be necessary if there's a
-// bug in the build tool... otherwise, packages should be rebuilt whenever
-// necessary!
+// download any new dependencies): we still trust the buildinfo files in your
+// app's IsopackCache. If you want to rebuild all local packages that are used
+// in your app, call meteor rebuild. That said, rebuild should only be necessary
+// if there's a bug in the build tool... otherwise, packages should be rebuilt
+// whenever necessary!
 main.registerCommand({
   name: '--get-ready',
+  pretty: true,
   catalogRefresh: new catalog.Refresh.OnceAtStart({ ignoreErrors: false })
 }, function (options) {
-  // XXX #3006 This command has done something confusing ever since 0.9.0.
-  //           And what it does changes with isopack-cache. Reimplement it
-  //           (perhaps after merging isopack-cache).
-  Console.error(
-    Console.command("meteor --get-ready"),
-    "not currently implemented");
-  // Don't make scripts fail, though.
+  // If we're in an app, make sure that we can build the current app. Otherwise
+  // just make sure that we can build some fake app.
+  var projectContext = new projectContextModule.ProjectContext({
+    projectDir: options.appDir || files.mkdtemp('meteor-get-ready')
+  });
+  main.captureAndExit("=> Errors while initializing project:", function () {
+    projectContext.initializeCatalog();
+  });
+
+  // Add every local package (including tests) and every release package to this
+  // project. (Hopefully they can all be built at once!)
+  var addPackages = function (packageNames) {
+    projectContext.projectConstraintsFile.addConstraints(
+      _.map(packageNames, function (p) {
+        return utils.parseConstraint(p);
+      })
+    );
+  };
+  addPackages(projectContext.localCatalog.getAllPackageNames());
+  if (release.current.isProperRelease()) {
+    addPackages(_.keys(release.current.getPackages()));
+  }
+
+  // Now finish building and downloading.
+  main.captureAndExit("=> Errors while initializing project:", function () {
+    projectContext.prepareProjectForBuild();
+  });
+  // We don't display package changes because they'd include all these packages
+  // not actually in the app!
+  // XXX Maybe we should do a first pass that only builds packages actually in
+  // the app and does display the PackageMapDelta?
   return 0;
+});
+
+
+// Internal use only. A simpler version of --get-ready which doesn't try to also
+// build/download local and release packages that aren't currently used. Just
+// builds and downloads packages used by the current app.
+main.registerCommand({
+  name: '--prepare-app',
+  pretty: true,
+  requiresApp: true,
+  catalogRefresh: new catalog.Refresh.OnceAtStart({ ignoreErrors: false })
+}, function (options) {
+  var projectContext = new projectContextModule.ProjectContext({
+    projectDir: options.appDir
+  });
+  main.captureAndExit("=> Errors while initializing project:", function () {
+    projectContext.prepareProjectForBuild();
+  });
+  projectContext.packageMapDelta.displayOnConsole();
 });
 
 
@@ -273,6 +322,7 @@ main.registerCommand({
   main.captureAndExit("=> Errors while initializing project:", function () {
     projectContext.prepareProjectForBuild();
   });
+  projectContext.packageMapDelta.displayOnConsole();
 
   var isopack = projectContext.isopackCache.getIsopack(packageName);
   if (! isopack) {
@@ -497,6 +547,9 @@ main.registerCommand({
   main.captureAndExit("=> Errors while initializing project:", function () {
     projectContext.prepareProjectForBuild();
   });
+  projectContext.packageMapDelta.displayOnConsole({
+    title: "Some package versions changed since this package was published!"
+  });
 
   var isopk = projectContext.isopackCache.getIsopack(name);
   if (! isopk)
@@ -703,6 +756,8 @@ main.registerCommand({
     main.captureAndExit("=> Errors while building for release:", function () {
       projectContext.prepareProjectForBuild();
     });
+    // No need to display the PackageMapDelta here, since it would include all
+    // of the packages!
 
     relConf.packages = {};
     var toPublish = [];
@@ -1044,7 +1099,7 @@ main.registerCommand({
       Console.error(
         "No recommended versions of release " + name + " exist.");
     } else {
-      Console.error("No versions of package" + name + " exist.");
+      Console.error("No versions of package " + name + " exist.");
     }
   } else {
     var lastVersion = versionRecords[versionRecords.length - 1];
@@ -1317,6 +1372,9 @@ main.registerCommand({
   main.captureAndExit("=> Errors while initializing project:", function () {
     projectContext.prepareProjectForBuild();
   });
+  // No need to display the PackageMapDelta here, since we're about to list all
+  // of the packages anyway!
+
 
   var items = [];
   var newVersionsAvailable = false;
@@ -1658,16 +1716,20 @@ var maybeUpdateRelease = function (options) {
   var upgradersToRun = upgraders.upgradersToRun(projectContext);
 
   // Download and build packages and write the new versions to .meteor/versions.
-  // XXX #3006 If we're about to try to upgrade packages, do we really want to
-  //           download and build packages here? Note that if we change this,
-  //           that changes the upgraders interface.
+  // XXX It's a little weird that we do a full preparation for build
+  //     (downloading packages, building packages, etc) when we might be about
+  //     to upgrade packages and have to do it again. Maybe we shouldn't? Note
+  //     that if we change this, that changes the upgraders interface, which
+  //     expects a projectContext that is fully prepared for build.
   main.captureAndExit("=> Errors while initializing project:", function () {
     projectContext.prepareProjectForBuild();
   });
   // Write the new release to .meteor/release.
   projectContext.releaseFile.write(solutionReleaseName);
-
-  // XXX #3006 #ShowPackageChanges
+  projectContext.packageMapDelta.displayOnConsole({
+    title: ("Changes to your project's package version selections from " +
+            "updating the release:")
+  });
 
   Console.info(path.basename(options.appDir) + ": updated to " +
                projectContext.releaseFile.displayReleaseName + ".");
@@ -1690,7 +1752,6 @@ var maybeUpdateRelease = function (options) {
   return 0;
 };
 
-// XXX #3006 All improvements to 'update' need to be thoroughly QA'd.
 main.registerCommand({
   name: 'update',
   options: {
@@ -1772,33 +1833,40 @@ main.registerCommand({
     }
   }
 
+  // Try to resolve constraints, allowing the given packages to be upgraded.
   projectContext.reset({
     releaseForConstraints: releaseRecordForConstraints,
     upgradePackageNames: upgradePackageNames
   });
-  main.captureAndExit("=> Errors while upgrading packages:", function () {
-    projectContext.prepareProjectForBuild();
-  });
+  main.captureAndExit(
+    "=> Errors while upgrading packages:", "upgrading packages", function () {
+      projectContext.resolveConstraints();
+      if (buildmessage.jobHasMessages())
+        return;
 
-  // XXX #3006 show package changes, including this "not in the project" message
-  // and "latest compatible versions" message. #ShowPackageChanges
-  // // Check that every requested package is actually used by the project, and
-  // // print an error if they are not. We don't check this on the original
-  // // versions because it could be out of date to begin with (ex: if you edited
-  // // the packages file) and we don't throw an error because, technically, it is
-  // // not an error. You could have gotten here by requesting updates of
-  // // transitive dependencies that are no longer there.
-  // _.each(upgradePackages, function (packageName) {
-  //   if (! _.has(newVersions, packageName)) {
-  //     Console.error(packageName + ': package is not in the project');
-  //   }
-  // });
+      // If the user explicitly mentioned some packages to upgrade, they must
+      // actually end up in our solution!
+      _.each(options.args, function (packageName) {
+        if (! projectContext.packageMap.getInfo(packageName)) {
+          buildmessage.error(packageName + ': package is not in the project');
+        }
+      });
+      if (buildmessage.jobHasMessages())
+        return;
 
-  // // Just for the sake of good messages, check to see if anything changed.
-  // if (_.isEqual(newVersions, versions)) {
-  //   Console.info("Your packages are at their latest compatible versions.");
-  //   return 0;
-  // }
+      // Finish preparing the project.
+      projectContext.prepareProjectForBuild();
+    }
+  );
+
+  if (projectContext.packageMapDelta.hasChanges()) {
+    projectContext.packageMapDelta.displayOnConsole({
+      title: ("Changes to your project's package version selections from " +
+              "updating package versions:")
+    });
+  } else {
+    Console.info("Your packages are at their latest compatible versions.");
+  }
 });
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1821,6 +1889,7 @@ main.registerCommand({
   main.captureAndExit("=> Errors while initializing project:", function () {
     projectContext.prepareProjectForBuild();
   });
+  projectContext.packageMapDelta.displayOnConsole();
 
   var upgrader = options.args[0];
 
@@ -1997,12 +2066,10 @@ main.registerCommand({
     return 1;
   }
 
-  // XXX #3006 #ShowPackageChanges
-
   _.each(infoMessages, function (message) {
     Console.info(message);
   });
-
+  projectContext.packageMapDelta.displayOnConsole();
 
   // Show descriptions of directly added packages.
   Console.info();
@@ -2100,10 +2167,11 @@ main.registerCommand({
   main.captureAndExit("=> Errors after removing packages", function () {
     projectContext.prepareProjectForBuild();
   });
+  projectContext.packageMapDelta.displayOnConsole();
 
   // Log that we removed the constraints. It is possible that there are
   // constraints that we officially removed that the project still 'depends' on,
-  // which is why there are these two tiers of error messages.
+  // which is why we do this in addition to dislpaying the PackageMapDelta.
   _.each(packagesToRemove, function (packageName) {
     Console.info(packageName + ": removed dependency");
   });
@@ -2229,7 +2297,6 @@ main.registerCommand({
 // admin make-bootstrap-tarballs
 ///////////////////////////////////////////////////////////////////////////////
 
-// XXX #3006 make sure this still works
 main.registerCommand({
   name: 'admin make-bootstrap-tarballs',
   minArgs: 2,
@@ -2263,7 +2330,7 @@ main.registerCommand({
   var toolVersion = toolConstraint.constraints[0].version;
 
   var toolPkgBuilds = catalog.official.getAllBuilds(
-    toolPkgBuilds, toolVersion);
+    toolPackage, toolVersion);
   if (!toolPkgBuilds) {
     // XXX this could also mean package unknown.
     Console.error('Tool version unknown: ' + release.tool + '');
@@ -2659,23 +2726,4 @@ main.registerCommand({
   refreshOfficialCatalogOrDie();
 
   return 0;
-});
-
-
-// XXX #3006: This is just a temporary command to test new code.
-main.registerCommand({
-  name: 'prep',
-  maxArgs: 0,
-  hidden: true,
-  catalogRefresh: new catalog.Refresh.Never(),
-  pretty: true,
-  requiresApp: true
-}, function (options) {
-  var projectContext = new projectContextModule.ProjectContext({
-    projectDir: options.appDir
-  });
-
-  main.captureAndExit("=> Errors while initializing project:", function () {
-    projectContext.prepareProjectForBuild();
-  });
 });

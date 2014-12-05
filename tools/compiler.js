@@ -45,6 +45,9 @@ compiler.compile = function (packageSource, options) {
         "` in package `" + packageSource.name + "`",
       rootPath: packageSource.sourceRoot
     }, function () {
+      // XXX we should probably also pass options.noLineNumbers into
+      //     buildJsImage so it can pass it back to its call to
+      //     compiler.compile
       var buildResult = bundler.buildJsImage({
         name: info.name,
         packageMap: packageMap,
@@ -57,8 +60,7 @@ compiler.compile = function (packageSource, options) {
         // rest of the package, so they need their own separate npm
         // shrinkwrap and cache state.
         npmDir: path.resolve(path.join(packageSource.sourceRoot, '.npm',
-                                       'plugin', info.name)),
-        catalog: packageSource.catalog
+                                       'plugin', info.name))
       });
       if (buildmessage.jobHasMessages())
         return;
@@ -126,7 +128,8 @@ compiler.compile = function (packageSource, options) {
       sourceArch: unibuild,
       isopackCache: isopackCache,
       nodeModulesPath: nodeModulesPath,
-      isPortable: isPortable
+      isPortable: isPortable,
+      noLineNumbers: options.noLineNumbers
     });
     _.extend(pluginProviderPackageNames,
              unibuildResult.pluginProviderPackageNames);
@@ -151,6 +154,7 @@ var compileUnibuild = function (options) {
   var isopackCache = options.isopackCache;
   var nodeModulesPath = options.nodeModulesPath;
   var isPortable = options.isPortable;
+  var noLineNumbers = options.noLineNumbers;
 
   var isApp = ! inputSourceArch.pkg.name;
   var resources = [];
@@ -739,7 +743,8 @@ var compileUnibuild = function (options) {
       (inputSourceArch.kind === "main" ? "" : (":" + inputSourceArch.kind)) + ".js",
     name: inputSourceArch.pkg.name || null,
     declaredExports: _.pluck(inputSourceArch.declaredExports, 'name'),
-    jsAnalyze: jsAnalyze
+    jsAnalyze: jsAnalyze,
+    noLineNumbers: noLineNumbers
   });
 
   // *** Determine captured variables

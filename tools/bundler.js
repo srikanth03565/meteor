@@ -167,7 +167,6 @@ var runLog = require('./run-log.js');
 var PackageSource = require('./package-source.js');
 var compiler = require('./compiler.js');
 var tropohouse = require('./tropohouse.js');
-var catalog = require('./catalog.js');
 var packageVersionParser = require('./package-version-parser.js');
 
 // files to ignore when bundling. node has no globs, so use regexps
@@ -408,6 +407,8 @@ _.extend(File.prototype, {
 // options:
 // - packageMap and isopackCache: for resolving package dependencies
 // - arch: the architecture to build
+// - cordovaPluginsFile: projectContextModule.CordovaPluginsFile object
+// - includeDebug: whether to include packages marked debugOnly in this target
 //
 // see subclasses for additional options
 var Target = function (options) {
@@ -590,7 +591,10 @@ _.extend(Target.prototype, {
       // Y appears before X in the ordering. Raises an exception iff there is no
       // such ordering (due to circular dependency).
       //
-      // XXX The topological sort code here is duplicated in catalog.js.
+      // The topological sort code here is similar to code in isopack-cache.js,
+      // though they do serve slightly different purposes: that one determines
+      // build order dependencies and this one determines load order
+      // dependencies.
 
       // What unibuilds have not yet been added to self.unibuilds?
       var needed = _.clone(usedUnibuilds);  // Map from unibuild.id to Unibuild.
@@ -883,8 +887,9 @@ _.extend(Target.prototype, {
   }
 });
 
-// This code should mirror the minify function in UglifyJs2,
-_minify = function(UglifyJS, key, files, options) {
+// This code is a copied-and-pasted version the minify function in UglifyJs2,
+// with our progress class inserted.
+var _minify = function (UglifyJS, key, files, options) {
   options = UglifyJS.defaults(options, {
     spidermonkey : false,
     outSourceMap : null,
@@ -1611,7 +1616,7 @@ _.extend(JsImageTarget.prototype, {
 
 //////////////////// ServerTarget ////////////////////
 
-// options:
+// options specific to this subclass:
 // - clientTarget: the ClientTarget to serve up over HTTP as our client
 // - releaseName: the Meteor release name (for retrieval at runtime)
 var ServerTarget = function (options) {
@@ -1680,7 +1685,7 @@ _.extend(ServerTarget.prototype, {
     // rebuild).
     if (options.includeNodeModulesSymlink) {
       builder.write('node_modules', {
-        symlink: path.join(files.getDevBundle(), 'lib', 'node_modules')
+        symlink: path.join(files.getDevBundle(), 'server-lib', 'node_modules')
       });
     }
 
@@ -1773,16 +1778,19 @@ var writeTargetToPath = function (name, target, outputPath, options) {
 // Returns:
 
 // {
-//     watchSet: watch.WatchSet for all files and directories that ultimately went
+//     clientWatchSet: watch.WatchSet for all files and directories that
+//                     ultimately went into all client programs
+//     serverWatchSet: watch.WatchSet for all files and directories that
+//                     ultimately went into all server programs
 //     starManifest: the JSON manifest of the star
 // }
-// into the bundle.
 //
 // options:
 // - includeNodeModulesSymlink: bool
 // - builtBy: vanity identification string to write into metadata
 // - controlProgram: name of the control program (should be a target name)
 // - releaseName: The Meteor release version
+// - getRelativeTargetPath: see doc at ServerTarget.write
 var writeSiteArchive = function (targets, outputPath, options) {
   var builder = new Builder({
     outputPath: outputPath,
@@ -1887,13 +1895,14 @@ var writeSiteArchive = function (targets, outputPath, options) {
  *
  * options are:
  *
- * XXX #3006: Update docs
- * - outputPath: Required. Path to the directory where the output (a
+ * - projectContext: Required. The project to build (ProjectContext object).
+ *
+ * - outputPath: Required. Path to the directory where the output (an
  *   untarred bundle) should go. This directory will be created if it
  *   doesn't exist, and removed first if it does exist.
  *
  * - includeNodeModulesSymlink: if set, we create a symlink from
- *   programs/server/node_modules to the dev bundle's lib/node_modules.
+ *   programs/server/node_modules to the dev bundle's server-lib/node_modules.
  *   This is a hack to make 'meteor run' faster. (We can't just set
  *   $NODE_PATH because then random node_modules directories above cwd
  *   take precedence.) To make it even hackier, this also means we
@@ -1902,15 +1911,17 @@ var writeSiteArchive = function (targets, outputPath, options) {
  *
  * - buildOptions: may include
  *   - minify: minify the CSS and JS assets (boolean, default false)
- *   - serverArch: the server architecture to target (defaults to
+ *   - serverArch: the server architecture to target (string, default
  *     archinfo.host())
- *   - includeDebug (whether to include packages marked debugOnly)
+ *   - includeDebug: include packages marked debugOnly (boolean, default false)
  *   - webArchs: array of 'web.*' options to build (defaults to
  *     projectContext.platformList.getWebArchs())
- *   - serverArch: XXX #3006
  *
  * - hasCachedBundle: true if we already have a cached bundle stored in
  *   /build. When true, we only build the new client targets in the bundle.
+ *
+ * - requireControlProgram: true if we need to include a "ctl" program in
+ *   the bundle.  This is required for an old prototype of Galaxy.
  *
  * Returns an object with keys:
  * - errors: A buildmessage.MessageSet, or falsy if bundling succeeded.
@@ -2004,7 +2015,7 @@ exports.bundle = function (options) {
     };
 
     // Create a Isopack object that represents the app
-    var packageSource = new PackageSource(projectContext.packageMap.catalog);
+    var packageSource = new PackageSource;
     packageSource.initFromAppDir(projectContext, exports.ignoreFiles);
     var app = compiler.compile(packageSource, {
       packageMap: projectContext.packageMap,
@@ -2027,7 +2038,6 @@ exports.bundle = function (options) {
 
     // Create a "control program". This is required for an old version of
     // Galaxy.
-    // XXX #3006 Check to see if this is still required.
     var controlProgram = null;
     if (options.requireControlProgram) {
       var target = makeServerTarget("ctl");
@@ -2098,6 +2108,7 @@ exports.bundle = function (options) {
 // Returns an object with keys:
 // - image: The created JsImage object.
 // - watchSet: Source file WatchSet (see bundle()).
+// - usedPackageNames: array of names of packages that are used
 //
 // XXX return an 'errors' key for symmetry with bundle(), rather than
 // letting exceptions escape?
@@ -2133,10 +2144,8 @@ exports.buildJsImage = function (options) {
     throw new Error("Must indicate .npm directory to use");
   if (! options.name)
     throw new Error("Must provide a name");
-  if (! options.catalog)
-    throw new Error("Must provide a catalog");
 
-  var packageSource = new PackageSource(options.catalog);
+  var packageSource = new PackageSource;
 
   packageSource.initFromOptions(options.name, {
     kind: "plugin",

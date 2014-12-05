@@ -426,11 +426,13 @@ _.extend(Db.prototype, {
 });
 
 
-var Table = function (name, jsonFields) {
+var Table = function (name, jsonFields, options) {
   var self = this;
+  options = options || {};
 
   self.name = name;
   self.jsonFields = jsonFields;
+  self.noContentColumn = options.noContentColumn;
 
   self._buildStatements();
 };
@@ -439,13 +441,15 @@ _.extend(Table.prototype, {
   _buildStatements: function () {
     var self = this;
 
-    var queryParams = self._generateQuestionMarks(self.jsonFields.length + 1);
+    var queryParams = self._generateQuestionMarks(
+      self.jsonFields.length + (self.noContentColumn ? 0 : 1));
     self._selectQuery = "SELECT * FROM " + self.name + " WHERE _id=?";
     self._insertQuery = "INSERT INTO " + self.name + " VALUES " + queryParams;
     self._deleteQuery = "DELETE FROM " + self.name + " WHERE _id=?";
   },
 
-  //Generate a string of the form (?, ?) where the n is the number of question mark
+  // Generate a string of the form (?, ?) where the n is the number of question
+  // mark.
   _generateQuestionMarks: function (n) {
     return "(" + _.times(n, function () { return "?" }).join(",") + ")";
   },
@@ -481,7 +485,9 @@ _.extend(Table.prototype, {
       _.each(self.jsonFields, function (jsonField) {
         row.push(o[jsonField]);
       });
-      row.push(JSON.stringify(o));
+      if (! self.noContentColumn) {
+        row.push(JSON.stringify(o));
+      }
       txn.execute(self._insertQuery, row);
     });
   },
@@ -493,13 +499,15 @@ _.extend(Table.prototype, {
     for (var i = 0; i < self.jsonFields.length; i++) {
       var jsonField = self.jsonFields[i];
       var sqlColumn = jsonField;
-      if (i != 0) sql += ",";
+      if (i != 0) sql += ", ";
       sql += sqlColumn + " STRING";
       if (sqlColumn === '_id') {
         sql += " PRIMARY KEY";
       }
     }
-    sql += ", content STRING";
+    if (! self.noContentColumn) {
+      sql += ", content STRING";
+    }
     sql += ")";
     txn.execute(sql);
 
@@ -557,8 +565,7 @@ _.extend(RemoteCatalog.prototype, {
     var self = this;
 
     var versions = self.getSortedVersions(name);
-    versions.reverse();
-    return self.getVersion(name, versions[0]);
+    return self.getVersion(name, _.last(versions));
   },
 
   getSortedVersions: function (name) {
@@ -568,6 +575,20 @@ _.extend(RemoteCatalog.prototype, {
     if (match === null)
       return [];
     return _.pluck(match, 'version').sort(VersionParser.compare);
+  },
+
+  // Just getVersion mapped over getSortedVersions, but only makes one round
+  // trip to sqlite.
+  getSortedVersionRecords: function (name) {
+    var self = this;
+    var versionRecords = this._contentQuery(
+      "SELECT content FROM versions WHERE packageName=?", [name]);
+    if (! versionRecords)
+      return [];
+    versionRecords.sort(function (a, b) {
+      return VersionParser.compare(a.version, b.version);
+    });
+    return versionRecords;
   },
 
   getLatestMainlineVersion: function (name) {
@@ -584,7 +605,7 @@ _.extend(RemoteCatalog.prototype, {
 
   getPackage: function (name, options) {
     var result = this._contentQuery(
-      "SELECT * FROM packages WHERE name=?", name);
+      "SELECT content FROM packages WHERE name=?", name);
     if (!result || result.length === 0)
       return null;
     if (result.length !== 1) {
@@ -595,7 +616,7 @@ _.extend(RemoteCatalog.prototype, {
 
   getAllBuilds: function (name, version) {
     var result = this._contentQuery(
-      "SELECT * FROM builds WHERE builds.versionId = " +
+      "SELECT content FROM builds WHERE builds.versionId = " +
         "(SELECT _id FROM versions WHERE versions.packageName=? AND " +
         "versions.version=?)",
       [name, version]);
@@ -692,14 +713,19 @@ _.extend(RemoteCatalog.prototype, {
     self.tablePackages = new Table('packages', ['name', '_id']);
     self.tableSyncToken = new Table('syncToken', ['_id']);
     self.tableMetadata = new Table('metadata', ['_id']);
+    self.tableBannersShown = new Table(
+      'bannersShown', ['_id', 'lastShown'], { noContentColumn: true });
 
-    self.allTables = [ self.tableVersions,
+    self.allTables = [
+      self.tableVersions,
       self.tableBuilds,
       self.tableReleaseTracks,
       self.tableReleaseVersions,
       self.tablePackages,
       self.tableSyncToken,
-      self.tableMetadata ]
+      self.tableMetadata,
+      self.tableBannersShown
+    ];
     return self.db.runInTransaction(function(txn) {
       _.each(self.allTables, function (table) {
         table.createTable(txn);
@@ -707,8 +733,18 @@ _.extend(RemoteCatalog.prototype, {
 
       // Extra indexes for the most expensive queries
       // These are non-unique indexes
-      txn.execute("CREATE INDEX IF NOT EXISTS versionsNamesIdx ON versions(packageName)");
-      txn.execute("CREATE INDEX IF NOT EXISTS buildsVersionsIdx ON builds(versionId)");
+      // XXX We used to have a versionsNamesIdx here on versions(packageName);
+      //     we no longer create it but we don't waste time dropping it either.
+      txn.execute("CREATE INDEX IF NOT EXISTS versionsIdx ON " +
+                  "versions(packageName, version)");
+      txn.execute("CREATE INDEX IF NOT EXISTS buildsVersionsIdx ON " +
+                  "builds(versionId)");
+      txn.execute("CREATE INDEX IF NOT EXISTS packagesIdx ON " +
+                  "packages(name)");
+      txn.execute("CREATE INDEX IF NOT EXISTS releaseTracksIdx ON " +
+                  "releaseTracks(name)");
+      txn.execute("CREATE INDEX IF NOT EXISTS releaseVersionsIdx ON " +
+                  "releaseVersions(track, version)");
     });
   },
 
@@ -766,6 +802,8 @@ _.extend(RemoteCatalog.prototype, {
   // exist or does not have any recommended versions.
   getSortedRecommendedReleaseVersions: function (track, laterThanOrderKey) {
     var self = this;
+    // XXX releaseVersions content objects are kinda big; if we put
+    // 'recommended' and 'orderKey' in their own columns this could be faster
     var result = self._contentQuery(
       "SELECT content FROM releaseVersions WHERE track=?", track);
 
@@ -887,6 +925,30 @@ _.extend(RemoteCatalog.prototype, {
     var self = this;
     value._id = key;
     self.tableMetadata.upsert(txn, [value]);
+  },
+
+  shouldShowBanner: function (releaseName, bannerDate) {
+    var self = this;
+    var row = self.db.runInTransaction(function (txn) {
+      return self.tableBannersShown.find(txn, releaseName);
+    });
+    // We've never printed a banner for this release.
+    if (! row)
+      return true;
+    var lastShown = new Date(row.lastShown);
+    return lastShown < bannerDate;
+  },
+
+  setBannerShownDate: function (releaseName, bannerShownDate) {
+    var self = this;
+    self.db.runInTransaction(function (txn) {
+      self.tableBannersShown.upsert(txn, [{
+        _id: releaseName,
+        // XXX For now every column is a string, but this should probably change
+        // to a timestamp with time zone or whatever.
+        lastShown: JSON.stringify(bannerShownDate)
+      }]);
+    });
   }
 });
 

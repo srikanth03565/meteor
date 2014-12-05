@@ -190,13 +190,8 @@ var SourceArch = function (pkg, options) {
 // PackageSource
 ///////////////////////////////////////////////////////////////////////////////
 
-var PackageSource = function (catalog) {
+var PackageSource = function () {
   var self = this;
-
-  // Which catalog this PackageSource works with.
-  if (!catalog)
-    throw Error("Must provide catalog");
-  self.catalog = catalog;
 
   // The name of the package, or null for an app pseudo-package or
   // collection. The package's exports will reside in Package.<name>.
@@ -372,17 +367,15 @@ _.extend(PackageSource.prototype, {
   // name: name of the package.
   // dir: location of directory on disk.
   // options:
-  //   -requireVersion: This is a package that is going in a catalog or being
-  //    published to the server. It must have a version. (as opposed to, for
-  //    example, a program)
-  //   -defaultVersion: The default version if none is specified. Only assigned
-  //    if the version is required.
-  //   -name: override the name of this package with a different name.
+  // - name: override the name of this package with a different name.
+  // - buildingIsopackets: true if this is being scanned in the process
+  //   of building isopackets
   initFromPackageDir: function (dir, options) {
     var self = this;
     buildmessage.assertInCapture();
     var isPortable = true;
     options = options || {};
+    var initFromPackageDirOptions = options;
 
     // If we know what package we are initializing, we pass in a
     // name. Otherwise, we are intializing the base package specified by 'name:'
@@ -393,6 +386,11 @@ _.extend(PackageSource.prototype, {
       self.isTest = isTestName(options.name);
       self.name = options.name;
     }
+
+    // Give the package a default version. We do not set
+    // versionExplicitlyProvided unless the package configuration file actually
+    // sets a version.
+    self.version = "0.0.0";
 
     self.sourceRoot = dir;
 
@@ -467,10 +465,38 @@ _.extend(PackageSource.prototype, {
               key === "git") {
             self.metadata[key] = value;
           } else if (key === "version") {
-            // XXX validate that version parses -- and that it doesn't
-            // contain a +!
-            self.version = value;
-            self.versionExplicitlyProvided = true;
+            if (typeof(value) !== "string") {
+              buildmessage.error("The package version (specified with "
+                                 + "Package.describe) must be a string.");
+              // Recover by pretending that version was not set.
+            } else {
+              var goodVersion = true;
+              try {
+                var parsedVersion = packageVersionParser.getValidServerVersion(
+                  value);
+              } catch (e) {
+                if (!e.versionParserError)
+                  throw e;
+                buildmessage.error(
+                  "The package version " + self.version + " (specified with Package.describe) "
+                    + "is not a valid Meteor package version.\n"
+                    + "Valid package versions are semver (see http://semver.org/), "
+                    + "optionally followed by '_' and an integer greater or equal to 1.");
+                goodVersion = false;
+              }
+              // Recover by pretending that the version was not set.
+            }
+            if (goodVersion && parsedVersion !== value) {
+              buildmessage.error(
+                "The package version (specified with Package.describe) may not "
+                  + "contain a plus-separated build ID.");
+              // Recover by pretending that the version was not set.
+              goodVersion = false;
+            }
+            if (goodVersion) {
+              self.version = value;
+              self.versionExplicitlyProvided = true;
+            }
           } else if (key === "name" && !self.isTest) {
             if (!self.name) {
               self.name = value;
@@ -868,66 +894,6 @@ _.extend(PackageSource.prototype, {
       // recover by ignoring
     }
 
-    // XXX #3006 are there any call sites that don't set requireVersion?
-    if (self.version === null && options.requireVersion) {
-      if (options.defaultVersion) {
-        self.version = options.defaultVersion;
-      } else if (! buildmessage.jobHasMessages()) {
-        // Only write the error if there have been no errors so
-        // far. (Otherwise if there is a parse error we'll always get
-        // this message, because we won't have been able to run any
-        // code.)
-        buildmessage.error("A version must be specified for the package. " +
-                           "Set it with Package.describe.");
-      }
-      // Recover by leaving the version unset. This is sort of
-      // unfortunate (it means that whereever we work with Package
-      // objects, we need to consider the possibility that their
-      // version is not set) but short of failing the build we have no
-      // alternative. Using a dummy version like "1.0.0" would cause
-      // endless confusion and a fake version like "unknown" wouldn't
-      // parse correctly. Anyway, apps don't have versions, so it's
-      // not like we didn't already have to think about this case.
-    }
-
-    if (self.version !== null && typeof(self.version) !== "string") {
-      if (!buildmessage.jobHasMessages()) {
-        buildmessage.error("The package version (specified with "
-                           + "Package.describe) must be a string.");
-      }
-      // Recover by pretending there was no version (see above).
-      self.version = null;
-    }
-
-    if (self.version !== null) {
-      var parsedVersion;
-      try {
-        parsedVersion =
-          packageVersionParser.getValidServerVersion(self.version);
-      } catch (e) {
-        if (!e.versionParserError)
-          throw e;
-        if (!buildmessage.jobHasMessages()) {
-          buildmessage.error(
-            "The package version " + self.version + " (specified with Package.describe) "
-            + "is not a valid Meteor package version.\n"
-            + "Valid package versions are semver (see http://semver.org/), "
-            + "optionally followed by '_' and an integer greater or equal to 1.");
-        }
-        // Recover by pretending there was no version (see above).
-        self.version = null;
-      }
-      if (parsedVersion && parsedVersion !== self.version) {
-        if (!buildmessage.jobHasMessages()) {
-          buildmessage.error(
-            "The package version (specified with Package.describe) may not "
-            + "contain a plus-separated build ID.");
-        }
-        // Recover by pretending there was no version (see above).
-        self.version = null;
-      }
-    }
-
     // source files used
     var sources = {};
 
@@ -1055,8 +1021,8 @@ _.extend(PackageSource.prototype, {
          * or `my:forms@1.0.0 || =2.0.1` (`my:forms` at `1.x.y`, or exactly `2.0.1`).
          * @param {String} [architecture] If you only use the package on the
          * server (or the client), you can pass in the second argument (e.g.,
-         * `'server'` or `'client'`) to specify what architecture the package is
-         * used with.
+         * `'server'`, `'client'`, `'web.browser'`, `'web.cordova'`) to specify
+         * what architecture the package is used with.
          * @param {Object} [options]
          * @param {Boolean} options.weak Establish a weak dependency on a
          * package. If package A has a weak dependency on package B, it means
@@ -1180,7 +1146,10 @@ _.extend(PackageSource.prototype, {
          * @summary Specify the source code for your package.
          * @locus package.js
          * @param {String|String[]} filename Name of the source file, or array of strings of source file names.
-         * @param {String} [architecture] If you only want to export the file on the server (or the client), you can pass in the second argument (e.g., 'server' or 'client') to specify what architecture the file is used with.
+         * @param {String} [architecture] If you only want to export the file
+         * on the server (or the client), you can pass in the second argument
+         * (e.g., 'server', 'client', 'web.browser', 'web.cordova') to specify
+         * what architecture the file is used with.
          */
         addFiles: function (paths, arch, fileOptions) {
           paths = toArray(paths);
@@ -1215,7 +1184,7 @@ _.extend(PackageSource.prototype, {
           // (since we may need the ddp isopacket to refresh catalog.official),
           // so we wouldn't actually be able to interpret the release name
           // anyway.
-          if (self.catalog.isopacketBuildingCatalog) {
+          if (initFromPackageDirOptions.buildingIsopackets) {
             buildmessage.error(
               "packages in isopackets may not use versionsFrom");
             // recover by ignoring
@@ -1263,7 +1232,10 @@ _.extend(PackageSource.prototype, {
          * @summary Export package-level variables in your package. The specified variables (declared without `var` in the source code) will be available to packages that use this package.
          * @locus package.js
          * @param {String} exportedObject Name of the object.
-         * @param {String} [architecture] If you only want to export the object on the server (or the client), you can pass in the second argument (e.g., 'server' or 'client') to specify what architecture the export is used with.
+         * @param {String} [architecture] If you only want to export the object
+         * on the server (or the client), you can pass in the second argument
+         * (e.g., 'server', 'client', 'web.browser', 'web.cordova') to specify
+         * what architecture the export is used with.
          */
         export: function (symbols, arch, options) {
           // Support `api.export("FooTest", {testOnly: true})` without
@@ -1409,7 +1381,6 @@ _.extend(PackageSource.prototype, {
       // which needs to be loaded by the linker).
       // XXX add a better API for js-analyze to declare itself here
       if (self.name !== "meteor" && self.name !== "js-analyze" &&
-          // XXX #3006 is this still needed?
           !process.env.NO_METEOR_PACKAGE) {
         // Don't add the dependency if one already exists. This allows the
         // package to create an unordered dependency and override the one that
@@ -1816,7 +1787,7 @@ _.extend(PackageSource.prototype, {
         var d = dependencies[parsedSpec.package];
 
         if (parsedSpec.constraint) {
-          allConstraints[parsedSpec.package].push(parsedSpec.constraints);
+          allConstraints[parsedSpec.package].push(parsedSpec.constraint);
           if (d.constraint === null) {
             d.constraint = parsedSpec.constraint;
           } else if (d.constraint !== parsedSpec.constraint) {

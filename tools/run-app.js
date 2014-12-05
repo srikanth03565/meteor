@@ -320,6 +320,8 @@ var AppRunner = function (options) {
   self.noRestartBanner = options.noRestartBanner;
   self.recordPackageUsage =
     options.recordPackageUsage === undefined ? true : options.recordPackageUsage;
+  self.omitPackageMapDeltaDisplayOnFirstRun =
+    options.omitPackageMapDeltaDisplayOnFirstRun;
 
   // Keep track of the app's Cordova plugins and platforms. If the set
   // of plugins or platforms changes from one run to the next, we just
@@ -334,6 +336,10 @@ var AppRunner = function (options) {
   self.runFuture = null;
   self.exitFuture = null;
   self.watchFuture = null;
+
+  // Futures added to this list by calling self.awaitFutureBeforeStart
+  // will be waited on just before self.appProcess.start() is called.
+  self._beforeStartFutures = [];
 };
 
 _.extend(AppRunner.prototype, {
@@ -379,6 +385,14 @@ _.extend(AppRunner.prototype, {
     self.exitFuture = null;
   },
 
+  awaitFutureBeforeStart: function(future) {
+    if (future instanceof Future) {
+      this._beforeStartFutures.push(future);
+    } else {
+      throw new Error("non-Future passed to awaitFutureBeforeStart");
+    }
+  },
+
   // Run the program once, wait for it to exit, and then return. The
   // return value is same as onRunEnd.
   _runOnce: function (options) {
@@ -402,12 +416,13 @@ _.extend(AppRunner.prototype, {
       if (! firstRun) {
         // If this isn't the first time we've run, we need to reset the project
         // context since everything we have cached may have changed.
-        // XXX #3006 We can try to be a little less conservative here:
-        // - Keep around some in-memory Isopack objects and validate them
-        //   by their buildinfo (we used to call this Soft Refresh).
-        // - Don't re-build the whole local catalog if we know which ones
-        //   have changed.
-        self.projectContext.reset();
+        // XXX We can try to be a little less conservative here:
+        // - Don't re-build the whole local catalog if we know which local
+        //   packages have changed.  (This one might be a little trickier due
+        //   to how the WatchSets are laid out.  Might be possible to avoid
+        //   re-building the local catalog at all if packages didn't change
+        //   at all, though.)
+        self.projectContext.reset({}, { softRefreshIsopacks: true });
         var messages = buildmessage.capture(function () {
           self.projectContext.readProjectMetadata();
         });
@@ -445,6 +460,11 @@ _.extend(AppRunner.prototype, {
             watchSet: self.projectContext.getProjectAndLocalPackagesWatchSet()
           }
         };
+      }
+
+      // Show package changes... unless it's the first time in test-packages.
+      if (!(self.omitPackageMapDeltaDisplayOnFirstRun && firstRun)) {
+        self.projectContext.packageMapDelta.displayOnConsole();
       }
 
       if (self.recordPackageUsage) {
@@ -504,8 +524,8 @@ _.extend(AppRunner.prototype, {
         outcome: 'outdated-cordova-platforms'
       };
     }
-    // XXX #3006 This is racy --- we should get this from the pre-runner build,
-    // not from the first runner build.
+    // XXX This is racy --- we should get this from the pre-runner build, not
+    // from the first runner build.
     self.cordovaPlatforms = platforms;
 
     var plugins = cordova.getCordovaDependenciesFromStar(
@@ -516,8 +536,8 @@ _.extend(AppRunner.prototype, {
         outcome: 'outdated-cordova-plugins'
       };
     }
-    // XXX #3006 This is racy --- we should get this from the pre-runner build,
-    // not from the first runner build.
+    // XXX This is racy --- we should get this from the pre-runner build, not
+    // from the first runner build.
     self.cordovaPlugins = plugins;
 
     var serverWatchSet = bundleResult.serverWatchSet;
@@ -581,6 +601,12 @@ _.extend(AppRunner.prototype, {
       nodeOptions: getNodeOptionsFromEnvironment(),
       settings: settings
     });
+
+    // Empty self._beforeStartFutures and await its elements.
+    if (self._beforeStartFutures.length > 0) {
+      Future.wait(self._beforeStartFutures.splice(0));
+    }
+
     appProcess.start();
 
     // Start watching for changes for files if requested. There's no

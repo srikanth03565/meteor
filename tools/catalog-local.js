@@ -75,6 +75,7 @@ _.extend(LocalCatalog.prototype, {
   //  - explicitlyAddedLocalPackageDirs: an array of paths which THEMSELVES
   //    are package source trees.  Takes precedence over packages found
   //    via localPackageSearchDirs.
+  //  - buildingIsopackets: true if we are building isopackets
   initialize: function (options) {
     var self = this;
     buildmessage.assertInCapture();
@@ -91,7 +92,7 @@ _.extend(LocalCatalog.prototype, {
       });
 
     self._computeEffectiveLocalPackages();
-    self._loadLocalPackages();
+    self._loadLocalPackages(options.buildingIsopackets);
     self.initialized = true;
   },
 
@@ -146,6 +147,17 @@ _.extend(LocalCatalog.prototype, {
     if (!_.has(self.packages, name))
       return [];
     return [self.packages[name].versionRecord.version];
+  },
+
+  // Given a package, returns an array of the version records available (ie, the
+  // one version we have, or an empty array).
+  getSortedVersionRecords: function (name) {
+    var self = this;
+    self._requireInitialized();
+
+    if (!_.has(self.packages, name))
+      return [];
+    return [self.packages[name].versionRecord];
   },
 
   // Return information about a particular version of a package, or
@@ -240,9 +252,8 @@ _.extend(LocalCatalog.prototype, {
     });
   },
 
-  _loadLocalPackages: function (options) {
+  _loadLocalPackages: function (buildingIsopackets) {
     var self = this;
-    options = options || {};
     buildmessage.assertInCapture();
 
     // Load the package source from a directory. We don't know the names of our
@@ -256,26 +267,21 @@ _.extend(LocalCatalog.prototype, {
     //  checkout.  It is not clear that you get good UX if you have two packages
     //  with the same name in your app. We don't check that.)
     var initSourceFromDir = function (packageDir, definiteName) {
-      var packageSource = new PackageSource(self.containingCatalog);
+      var packageSource = new PackageSource;
       buildmessage.enterJob({
         title: "reading package from `" + packageDir + "`",
         rootPath: packageDir
       }, function () {
-        // All packages in the catalog must have versions. Though, for local
-        // packages without version, we can be kind and set it to
-        // 0.0.0. Anything requiring any version above that will not be
-        // compatible, which is fine.
-        var opts = {
-          requireVersion: true,
-          defaultVersion: "0.0.0"
+        var initFromPackageDirOptions = {
+          buildingIsopackets: !! buildingIsopackets
         };
         // If we specified a name, then we know what we want to get and should
         // pass that into the options. Otherwise, we will use the 'name'
         // attribute from package-source.js.
         if (definiteName) {
-          opts["name"] = definiteName;
+          initFromPackageDirOptions.name = definiteName;
         }
-        packageSource.initFromPackageDir(packageDir, opts);
+        packageSource.initFromPackageDir(packageDir, initFromPackageDirOptions);
         if (buildmessage.jobHasMessages())
           return;  // recover by ignoring
 

@@ -127,7 +127,7 @@ var toc = [
       "Accounts.onCreateUser",
       "Accounts.validateLoginAttempt",
       "Accounts.onLogin",
-      {name: "Accounts.onLoginFailure", id: "accounts_onlogin"}
+      "Accounts.onLoginFailure"
     ],
 
     {name: "Passwords", id: "accounts_passwords"}, [
@@ -306,16 +306,18 @@ var toc = [
   ],
 
   "Packages", [ [
+    "appcache",
     "accounts-ui",
     "audit-argument-checks",
     "coffeescript",
-    "fastclick",
     "jquery",
     "less",
+    "markdown",
     "oauth-encryption",
     "random",
-    "stylus",
     "showdown",
+    {name: "spiderable", link: "https://atmospherejs.com/meteor/spiderable"},
+    "stylus",
     "underscore",
     "webapp"
   ] ],
@@ -362,9 +364,12 @@ Template.nav.helpers({
         else {
           if (typeof(item) === "string")
             item = {name: item};
+
+          var id = item.name && name_to_id(item.name) || undefined;
+
           ret.push(_.extend({
             type: "section",
-            id: item.name && name_to_id(item.name) || undefined,
+            link: "#/full/" + id,
             depth: depth,
             style: ''
           }, item));
@@ -390,4 +395,3 @@ Template.nav_section.helpers({
     return this.depth === n;
   }
 });
-
