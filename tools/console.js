@@ -53,9 +53,10 @@ var FALLBACK_STATUS = '';
 
 // If there is a part of the larger text, and we really want to make sure that
 // it doesn't get split up, we will replace the space with a utf character that
-// looks blank and that we are unlikely to otherwise use. At the end of the
-// wrapping function, we will again replace it with a space.
-var SPACE_REPLACEMENT = '\u0015';
+// we are not likely to use anywhere else. This one looks like the sun! We
+// intentionally want to NOT use a space-like character: it should be obvious
+// that something has gone wrong if this ever gets printed.
+var SPACE_REPLACEMENT = '\u2600';
 // In Javascript, replace only replaces the first occurance and this is the
 // proposed alternative.
 var replaceAll = function (str, search, replace) {
