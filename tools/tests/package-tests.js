@@ -1004,7 +1004,7 @@ var testShowPackage = function (s, fullPackageName, options) {
     _.each(options.versions, function (version) {
       run.match(version.version);
       if (version.directory) {
-        run.match(version.directory);
+        run.match(version.directory + "\n");
       } else {
         run.match(version.date);
         if (version.label) {
@@ -1849,3 +1849,98 @@ selftest.define("show release w/o recommended versions",
     packages: [{ name: fullPackageName, version: "1.0.0" }]
   });
 });
+
+selftest.define("show package w/many versions",
+  ['net', 'test-package-server', 'slow'], function () {
+
+  var s = new Sandbox();
+  s.set("METEOR_TEST_TMP", files.mkdtemp());
+  testUtils.login(s, username, password);
+
+  // Technically, this could make our test a little flaky if run at exactly
+  // 11:59:59 PM, since the day will switch over before the test is finished. We
+  // will never eliminate that possibility completely though, and running this
+  // every time we want to check a publication date is sort of expensive.
+  var today = longformToday();
+
+  // Set package version and publish the package.
+  var setVersionAndPublish = function (version) {
+    var packOpen = s.read("package-version.js");
+    packOpen = packOpen.replace(/~version~/g, version);
+    s.write("package.js", packOpen);
+    var run = s.run("publish");
+    run.waitSecs(30);
+    run.expectExit(0);
+  };
+
+  // In order to publish a release, we need a package to use as the
+  // tool. Publish a package, and use it as the tool. (This release will not
+  // actually run, but we are not testing that.)
+  var packageName = utils.randomToken();
+  var fullPackageName = username + ":" + packageName;
+  s.createPackage(fullPackageName, "package-of-two-versions");
+  var packageDir = files.pathJoin(s.root, "home", fullPackageName);
+  s.cd(fullPackageName, function () {
+    var run = s.run("publish", "--create");
+    run.waitSecs(30);
+    run.expectExit(0);
+
+    // Publish a couple more versions.
+    setVersionAndPublish("1.0.1");
+    setVersionAndPublish("1.0.5");
+    setVersionAndPublish("1.0.6");
+    setVersionAndPublish("1.0.7");
+    setVersionAndPublish("2.0.0-rc.1");
+    setVersionAndPublish("2.0.0");
+    setVersionAndPublish("2.0.1");
+
+    // Make sure that the right versions show up when the local package is visible.
+    var moreAvailable =
+          "Some versions of " + fullPackageName + " have been hidden. To see " +
+          "all 9 versions, run\n'meteor show --show-all " + fullPackageName + "'.";
+    testShowPackage(s, fullPackageName, {
+      maintainers: username,
+      summary: "Test package.",
+      addendum: moreAvailable,
+      versions: [
+        { version: "1.0.5", date: today },
+        { version: "1.0.6", date: today },
+        { version: "1.0.7", date: today },
+        { version: "2.0.0", date: today },
+        { version: "2.0.1", date: today },
+        { version: "2.0.1", directory: packageDir }
+      ]
+    });
+  });
+
+  // Make sure that the right versions show up when the local package is NOT visible.
+  var moreAvailable =
+     "Some versions of " + fullPackageName + " have been hidden. To see " +
+     "all 8 versions, run\n'meteor show --show-all " + fullPackageName + "'.";
+  testShowPackage(s, fullPackageName, {
+    maintainers: username,
+    summary: "Test package.",
+    addendum: moreAvailable,
+    versions: [
+      { version: "1.0.5", date: today },
+      { version: "1.0.6", date: today },
+      { version: "1.0.7", date: today },
+      { version: "2.0.0", date: today },
+      { version: "2.0.1", date: today }
+    ]
+  });
+  testShowPackage(s, fullPackageName, {
+    all: true,
+    maintainers: username,
+    summary: "Test package.",
+    versions: [
+      { version: "1.0.0", date: today },
+      { version: "1.0.1", date: today },
+      { version: "1.0.5", date: today },
+      { version: "1.0.6", date: today },
+      { version: "1.0.7", date: today },
+      { version: "2.0.0", date: today },
+      { version: "2.0.1", date: today }
+    ]
+  });
+ });
