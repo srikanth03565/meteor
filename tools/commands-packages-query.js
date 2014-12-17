@@ -990,10 +990,11 @@ main.registerCommand({
   minArgs: 0, // So we can provide specific help
   maxArgs: 1,
   options: {
-    maintainer: {type: String, required: false },
-    "show-all": {type: Boolean, required: false },
+    maintainer: { type: String, required: false },
+    "show-all": { type: Boolean, required: false },
+    ejson: { type: Boolean, required: false },
     // Undocumented debug-only option for Velocity.
-    "debug-only": {type: Boolean, required: false}
+    "debug-only": { type: Boolean, required: false }
   },
   catalogRefresh:
     new catalog.Refresh.OnceAtStart(
@@ -1100,8 +1101,12 @@ main.registerCommand({
           vr = projectContext.layeredCatalog.getLatestVersion(pack);
         }
         if (vr) {
-          matchingPackages.push(
-            { name: pack, description: vr.description});
+          matchingPackages.push({
+            name: pack,
+            description: vr.description,
+            latestVersion: vr.version,
+            lastUpdated: new Date(vr.lastUpdated)
+          });
         }
       }
     });
@@ -1109,12 +1114,25 @@ main.registerCommand({
       if (selector(track, true)) {
         var vr = catalog.official.getDefaultReleaseVersionRecord(track);
         if (vr) {
-          matchingReleases.push(
-            { name: track, description: vr.description});
+          matchingReleases.push({
+            name: track,
+            description: vr.description,
+            latestVersion: vr.version,
+            lastUpdated: new Date(vr.lastUpdated)
+          });
         }
       }
     });
   });
+
+  if (options.ejson) {
+    var ret = {
+      packages: matchingPackages,
+      releases: matchingReleases
+    };
+    Console.rawInfo(convertToEJSON(ret));
+    return 0;
+  }
 
   var output = false;
   if (!_.isEqual(matchingPackages, [])) {
@@ -1134,7 +1152,7 @@ main.registerCommand({
     utils.explainIfRefreshFailed();
   } else {
     Console.info(
-      "You can use", Console.command("meteor show"),
+      "You can use", Console.command("'meteor show'"),
       "to get more information on a specific item.");
   }
 });
