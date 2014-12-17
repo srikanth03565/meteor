@@ -160,10 +160,13 @@ var PackageQuery = function (record, options) {
   self.metaRecord = record;
   self.name = record.name;
 
-  // This contains the context of our query -- catalogs, options, etc.
+  // This argument is required -- we use it to look up data. If it has not been
+  // passed in, fail early.
+  if (! options.projectContext) {
+    throw Error("Missing required argument: projectContext");
+  }
   self.projectContext = options.projectContext;
   self.localCatalog = options.projectContext.localCatalog;
-  catalog.official = catalog.official;
 
   // Processing per-version availability architectures & dependencies is
   // expensive, so we don't do it unless we are asked to.
@@ -282,7 +285,7 @@ _.extend(PackageQuery.prototype, {
         _.filter(serverVersionRecords, function (vr) {
           return ! vr.unmigrated && vr.version.indexOf("-") === -1;
       });
-      serverVersionRecords = _.first(serverVersionRecords, MAX_RECENT_VERSIONS);
+      serverVersionRecords = _.last(serverVersionRecords, MAX_RECENT_VERSIONS);
     };
 
     // Process the catalog records into our preferred format, and look up any
@@ -337,8 +340,9 @@ _.extend(PackageQuery.prototype, {
   _getOfficialVersion: function (versionRecord) {
     var self = this;
     var version = versionRecord.version;
+    var name = self.name;
     var data = {
-      name: self.name,
+      name: name,
       version: version,
       summary: versionRecord.description,
       description: versionRecord.longDescription,
@@ -367,29 +371,22 @@ _.extend(PackageQuery.prototype, {
 
     // We want to figure out if we have already downloaded this package, and,
     // therefore, can use it offline.
-    // XXX: move this to tropohouse.
-    var myBuilds = [archinfo.host()];
-    var buildsExist = catalog.official.getBuildsForArches(
-       self.name, version, myBuilds);
     var tropohouse = self.projectContext.tropohouse;
-    if (! buildsExist) {
-      // The right build was never published for this package, so we clearly
-      // can't have had it installed.
-      data["installed"] = false;
-    } else {
-      // The interface to tropohouse is currently in flux. The current interface
-      // for maybeDownloadPackageForArchitectures does not actually download the
-      // package if the returnDownloadCallback is passed. In that case, it
-      // either returns the downloading function, or null if the package is
-      // already on disk.  We are going to use this affordance here.
-      var needsDL = tropohouse.maybeDownloadPackageForArchitectures({
-        returnDownloadCallback: true,
-        packageName: self.name,
-        version: version,
-        architectures: [archinfo.host()],
-        silent: true
+    try {
+      data["installed"] = tropohouse.installed({
+        packageName: name,
+        version: version
       });
-      data["installed"] = (needsDL === null);
+    } catch (e) {
+      // If we get any sort of error that isn't ENOENT, something is wrong, but
+      // the corruption might only extend to a specific version that you will
+      // never use. It would be awkward to fail 'meteor show' forever because of
+      // that. Print an error message, so we can track this down, but don't
+      // throw.
+      if (e.code !== 'ENOENT') {
+        Console.error(e);
+      }
+      data["installed"] = false;
     }
     return data;
   },
