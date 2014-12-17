@@ -68,6 +68,13 @@ var convertToEJSON = function (data) {
   return EJSON.stringify(data, { indent: true }) + "\n";
 };
 
+// Takes in a string and pads it with whitespace to the length of the longest
+// possible date string.
+var padLongformDate = function (dateStr) {
+  var numSpaces = utils.maxDateLength - dateStr.length;
+  return dateStr + Array(numSpaces + 1).join(' ');
+};
+
 // In order to get access to local package data, we need to create a local
 // package catalog. The best way to do that is to create a temporary
 // ProjectContext and let it handle catalog initialization. When we do, we need
@@ -590,7 +597,8 @@ _.extend(PackageQuery.prototype, {
         // If there is a status that we would like to report for this package,
         // figure it out now.
         if (v.installed) {
-          rows.push([v.version, publishDate + "  " + "installed"]);
+          var paddedDate = padLongformDate(publishDate);
+          rows.push([v.version, paddedDate + "  " + "installed"]);
         } else {
           rows.push([v.version, publishDate]);
         }
@@ -856,7 +864,7 @@ _.extend(ReleaseQuery.prototype, {
   //  - recommended: true if the version is recommended.
   _displayAllReleaseVersions: function (versions) {
     var self = this;
-    var indent = { indent: 2};
+    var columnOpts = { indent: 2, ignoreWidth: true };
     // If we don't have any versions, then there is nothing to display.
     if (! versions) { return; }
 
@@ -877,13 +885,15 @@ _.extend(ReleaseQuery.prototype, {
       Console.info("Versions:");
       var rows = [];
       _.each(versionsWithKey, function (vr) {
-        var label = utils.longformDate(vr.publishedOn);
-        if (vr.recommended) {
-          label += "  (recommended)";
+        var dateStr = utils.longformDate(vr.publishedOn);
+        if (! vr.recommended) {
+          rows.push([ vr.version, dateStr ]);
+        } else {
+          var paddedDate = padLongformDate(dateStr);
+          rows.push([ vr.version, paddedDate + "  (recommended)" ]);
         }
-        rows.push([vr.version, label]);
       });
-      Console.printTwoColumns(rows, indent);
+      Console.printTwoColumns(rows, columnOpts);
     }
 
     if (experimentalVersions) {
@@ -897,7 +907,7 @@ _.extend(ReleaseQuery.prototype, {
         // Experimental versions cannot be recommended.
         rows.push([vr.version, utils.longformDate(vr.publishedOn)]);
       });
-      Console.printTwoColumns(rows, indent);
+      Console.printTwoColumns(rows, columnOpts);
     }
   }
 });

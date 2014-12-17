@@ -8,6 +8,7 @@ var packageVersionParser = require('./package-version-parser.js');
 var semver = require('semver');
 var os = require('os');
 var url = require('url');
+var moment = require('moment');
 
 var utils = exports;
 
@@ -653,10 +654,14 @@ exports.mobileServerForRun = function (options) {
 // Takes in either a raw date string (ex: 2014-12-09T18:37:48.977Z) or a date
 // object and returns a long-form human-readable date (ex: December 9th, 2014).
 exports.longformDate = function (date) {
-  var pubDate = new Date(date).toString();
-  pubDate = pubDate.substring(4, 15);
+  var pubDate = moment(date).format('MMMM Do, YYYY');
   return pubDate;
 };
+
+// Length of the longest possible string that could come out of longformDate
+// (September is the longest month name, so "September 24th, 2014" would be an
+// example).
+exports.maxDateLength = 20;
 
 exports.escapePackageNameForPath = function (packageName) {
   return packageName.replace(":", "_");
