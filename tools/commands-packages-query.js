@@ -62,6 +62,44 @@ var formatDependencies = function (versionDependencies) {
   return dependencies;
 };
 
+// Convert package exports into a more helpful format for output in
+// 'meteor show'.
+var formatExports = function (rawexports) {
+  var exports = _.map(rawexports, function (arches, name) {
+    // Replace 'os' with 'server' (what you would put in a package.js file) to
+    // avoid confusing it with different OS arches mentioned elsewhere.
+    if ( _.indexOf(arches, "os") !== -1) {
+      arches = _.without(arches, "os");
+      arches.push("server");
+    }
+    arches.sort();
+    return {
+       name: name,
+       arches: arches
+    };
+  });
+  return _.sortBy(exports, "name");
+};
+
+// Convert package exports into a prettily-displayed string.
+//
+// Goes through the package exports. If an export is only declared for certain
+// architectures, mentions those architectures in a user-friendly format.
+var exportsToString = function (exports) {
+  var strExports = _.map(exports, function (exp) {
+    // If this export is valid for all architectures, don't specify
+    // architectures here.
+    if (exp.arches.length === 3)
+      return exp.name;
+
+    // Don't split descriptions of individual exports between lines.
+    return Console.noWrap(exp.name + " (" + exp.arches.join(", ") + ")");
+  });
+  return strExports.join(", ");
+};
+
+
+
 // Converts an object to an EJSON string with the right spacing.
 var convertToEJSON = function (data) {
   var EJSON = isopackets.load('ejson').ejson.EJSON;
@@ -240,7 +278,8 @@ _.extend(PackageQuery.prototype, {
     if (options.ejson) {
       var versionFields = [
         "name", "version", "description", "summary", "git", "dependencies",
-        "publishedBy", "publishedOn", "installed", "local", "OSarchitectures"
+        "publishedBy", "publishedOn", "installed", "local", "OSarchitectures",
+        "exports"
       ];
       var packageFields =
         [ "name", "homepage", "maintainers", "versions", "totalVersions" ];
@@ -427,6 +466,9 @@ _.extend(PackageQuery.prototype, {
     var packageSource = self.localCatalog.getPackageSource(self.name);
     data["directory"] = packageSource.sourceRoot;
 
+    // Get the exports.
+    data["exports"] = formatExports(packageSource.getExports());
+
     // If the version was not explicitly set by the user, the catalog backfills
     // a placeholder version for the constraint solver. We don't want to show
     // that version to the user.
@@ -441,8 +483,9 @@ _.extend(PackageQuery.prototype, {
 
     return data;
   },
-  // Displays version information from this PackageQuery to the terminal in a human-friendly
-  // format. Takes in an object that contains some, but not all, of the following keys:
+  // Displays version information from this PackageQuery to the terminal in a
+  // human-friendly format. Takes in an object that contains some, but not all,
+  // of the following keys:
   //
   // - name: (mandatory) package Name
   // - version: (mandatory) package version
@@ -464,21 +507,34 @@ _.extend(PackageQuery.prototype, {
   //     - weak: true if this is a weak dependency.
   _displayVersion: function (data) {
     var self = this;
-    Console.info("Package:", data.name);
-    Console.info("Version:", data.version);
+    Console.info(
+        data.name,
+        Console.options({ bulletPoint: "Package: " }));
+    Console.info(
+        data.version,
+        Console.options({ bulletPoint: "Version: " }));
     if (data.summary) {
-      Console.info("Summary:", data.summary);
+      Console.info(
+        data.summary,
+        Console.options({ bulletPoint: "Summary: " }));
     }
     if (data.publishedBy) {
       var publisher = data.publishedBy;
       var pubDate = utils.longformDate(data.publishedOn);
       Console.info("Published by", publisher, "on", pubDate);
     }
-    if (data.git) {
-      Console.info("Git:", Console.url(data.git));
-    }
     if (data.directory) {
-      Console.info("Directory:", Console.path(data.directory));
+      Console.info("Directory: " + Console.path(data.directory));
+    }
+    if (data.git) {
+      Console.info(
+        Console.url(data.git),
+        Console.options({ bulletPoint: "Git: " }));
+    }
+    if (data.exports && ! _.isEmpty(data.exports)) {
+      Console.info(
+        exportsToString(data.exports),
+        Console.options({ bulletPoint: "Exports: " }));
     }
     Console.info();
 
@@ -547,17 +603,28 @@ _.extend(PackageQuery.prototype, {
     var defaultVersion = data.defaultVersion;
 
     // Every package has a name. Some packages have a homepage.
-    Console.info("Package:", data.name);
+    Console.info(data.name,
+       Console.options({ bulletPoint: "Package: " }));
     if (data.homepage) {
-      Console.info("Homepage:", Console.url(data.homepage));
-    }
-    // Git is per-version, so we will print the latest one, if one exists.
-    if (defaultVersion && defaultVersion.git) {
-      Console.info("Git:", Console.url(defaultVersion.git));
+      Console.info(Console.url(data.homepage),
+        Console.options({ bulletPoint: "Homepage: " }));
     }
     // Local packages might not have any maintainers.
     if (! _.isEmpty(data.maintainers)) {
-      Console.info("Maintainers:", data.maintainers.join(", "));
+      Console.info(data.maintainers.join(", "),
+        Console.options({ bulletPoint: "Maintainers: " }));
+    }
+    // Git is per-version, so we will print the latest one, if one exists.
+    if (defaultVersion && defaultVersion.git) {
+      Console.info(Console.url(defaultVersion.git),
+        Console.options({ bulletPoint: "Git: " }));
+    }
+    // Print the exports.
+    if (defaultVersion && defaultVersion.exports &&
+       ! _.isEmpty(defaultVersion.exports)) {
+      Console.info(
+        exportsToString(defaultVersion.exports),
+        Console.options({ bulletPoint: "Exports: " }));
     }
     Console.info();
 

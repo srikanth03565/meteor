@@ -993,11 +993,14 @@ var testShowPackage = function (s, fullPackageName, options) {
   if (options.homepage) {
     run.read("Homepage: " + options.homepage + "\n");
   }
+  if (options.maintainers) {
+    run.read("Maintainers: " + options.maintainers + "\n");
+  }
   if (options.git) {
     run.read("Git: " + options.git + "\n");
   }
-  if (options.maintainers) {
-    run.read("Maintainers: " + options.maintainers + "\n");
+  if (options.exports) {
+    run.read("Exports: " + options.exports + "\n");
   }
   run.read("\n");
   if (_.has(options, "summary")) {
@@ -1057,14 +1060,14 @@ var testShowPackageVersion = function (s, options) {
   if (options.publishedBy) {
     run.match("Published by " + options.publishedBy + " on " + options.publishedOn + "\n");
   }
+  if (options.directory) {
+    run.match("Directory:\n" + options.directory + "\n");
+  }
   if (options.git) {
     run.match("Git: " + options.git + "\n");
   }
-  if (options.directory) {
-    // Because of line wrapping, we will never be able to fit our root path on
-    // the same line as the label (on the 80 character terminal, with sandbox's
-    // super-long paths).
-    run.match("Directory:\n" + options.directory + "\n");
+  if (options.exports) {
+    run.read("Exports: " + options.exports + "\n");
   }
   run.read("\n");
   if (_.has(options, "summary")) {
@@ -1166,6 +1169,33 @@ selftest.define("show and search local package",  function () {
   run.match(name);
   run.match("You can use");
   run.expectExit(0);
+
+  // We can see exports on local packages.
+  s.cd("packages");
+  summary = "This is a test package";
+  name = "my-local-exports";
+  packageDir = files.pathJoin(s.root, "home", "myapp", "packages", name);
+  s.createPackage(name, "package-for-show");
+  s.cd(name, function () {
+    s.cp("package-with-exports.js", "package.js");
+  });
+
+  var exportStr =
+    "A, B (server), C (web.browser, web.cordova)," +
+    " D (web.browser),\n"  + "         " +
+    "E (web.cordova), G (server, web.cordova)";
+  testShowPackage(s, name, {
+    summary: summary,
+    exports: exportStr,
+    versions: [{ version: "1.0.1", directory: packageDir }]
+  });
+  testShowPackageVersion(s, {
+    packageName: name,
+    version: "1.0.1",
+    directory: packageDir,
+    summary: summary,
+    exports: exportStr
+  });
 });
 
 // Make sure that if a package exists both locally, and on the server, 'meteor

@@ -1712,6 +1712,33 @@ _.extend(PackageSource.prototype, {
     return _.keys(packages);
   },
 
+  // Returns an array of objects, representing this package's public
+  // exports. Each object has the following keys:
+  //  - name: export name (ex: "Accounts")
+  //  - arch: an array of strings representing architectures for which this
+  //    export is declared.
+  //
+  // This ignores testOnly exports.
+  getExports: function () {
+    var self = this;
+    var ret = {};
+    _.each(self.architectures, function (arch) {
+      _.each(arch.declaredExports, function (exp) {
+        // Skip testOnly exports
+        if (exp.testOnly) {
+          return;
+        }
+        // Add the export to the export map.
+        if (! _.has(ret, exp.name)) {
+          ret[exp.name] = [arch.arch];
+        } else {
+          ret[exp.name].push(arch.arch);
+        }
+     });
+    });
+    return ret;
+  },
+
   // If dependencies aren't consistent across unibuilds, return false and
   // also log a buildmessage error if inside a buildmessage job. Else
   // return true.
