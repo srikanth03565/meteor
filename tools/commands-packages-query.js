@@ -140,7 +140,8 @@ var itemNotFound = function (item) {
 // the details of printing their data to the screen.
 //
 // A query class has:
-//  - data: an object representing the data it has collected in response to the query.
+//  - data: an object representing the data it has collected in response to the
+//  - query.
 //  - a print method, that take options as an argument and prints the results to
 //    the terminal.
 
@@ -148,24 +149,25 @@ var itemNotFound = function (item) {
 // This class deals with information related to packages. To deal with local
 // packages, it has to interact with the projectContext.
 //
-// The constructor takes in the meta-record of the package and the following
-// options:
-//   - projectContext: a projectContext that we can use to look up information
-//     on local packages.
-//   - version: (optional) query for a specific version of this package.
-//   - showArchitectures: (optional) collect and process data on architectures that are
-//     available for different versions of this package.
-//   - showHiddenVersions: (optional) return information about all the versions of the
+// The constructor takes in the following options:
+//   - record: (mandatory) the meta-record for this package from the Packages
+//   - collection.
+//   - projectContext: (mandatory) a projectContext that we can use to look up
+//     information on local packages.
+//   - version: query for a specific version of this package.
+//   - showOSArchitectures: collect and process data on OS
+//     architectures that are available for different versions of this package.
+//   - showHiddenVersions: return information about all the versions of the
 //     package, including pre-releases and un-migrate versions.
-//   - showDependencies: (optional) return information information about
+//   - showDependencies: return information information about
 //     versions' dependencies.
-var PackageQuery = function (record, options) {
+var PackageQuery = function (options) {
   var self = this;
 
   // This is the record in the packages collection. It contains things like
   // maintainers, and the package homepage.
-  self.metaRecord = record;
-  self.name = record.name;
+  self.metaRecord = options.record;
+  self.name = options.record.name;
 
   // This argument is required -- we use it to look up data. If it has not been
   // passed in, fail early.
@@ -177,7 +179,7 @@ var PackageQuery = function (record, options) {
 
   // Processing per-version availability architectures & dependencies is
   // expensive, so we don't do it unless we are asked to.
-  self.showArchitectures = options.showArchitectures;
+  self.showOSArchitectures = options.showOSArchitectures;
   self.showDependencies = options.showDependencies;
 
   // We don't want to show pre-releases and un-migrated versions to the user
@@ -212,7 +214,7 @@ _.extend(PackageQuery.prototype, {
     // If we asked for "local" as the version number, and found any local version
     // at all, we are done.
     if (version === "local") {
-      return _.extend(versionRecord, { local: true });
+      return versionRecord && _.extend(versionRecord, { local: true });
     }
 
     // We have a local record, and its version matches the version that we asked
@@ -240,7 +242,7 @@ _.extend(PackageQuery.prototype, {
     if (options.ejson) {
       var versionFields = [
         "name", "version", "description", "summary", "git", "dependencies",
-        "publishedBy", "publishedOn", "installed", "local", "architectures"
+        "publishedBy", "publishedOn", "installed", "local", "OSarchitectures"
       ];
       var packageFields =
         [ "name", "homepage", "maintainers", "versions", "totalVersions" ];
@@ -317,11 +319,20 @@ _.extend(PackageQuery.prototype, {
     // information.  We want to use the right version for that. (We don't want
     // to display data from unofficial or un-migrated versions just because they
     // are recent.)
-    data["defaultVersion"] =
-          localVersion ||
-          catalog.official.getLatestMainlineVersion(self.name) ||
-          _.last(data.versions);
-
+    if (local) {
+      data["defaultVersion"] = local;
+    } else {
+      var mainlineRecord = catalog.official.getLatestMainlineVersion(self.name);
+      if (mainlineRecord) {
+        data["defaultVersion"] = {
+          summary: mainlineRecord.description,
+          description: mainlineRecord.longDescription,
+          git: mainlineRecord.git
+        };
+      } else {
+        data["defaultVersion"] = _.last(data.versions);
+      }
+    }
     return data;
   },
   // Takes in a version record from the official catalog and looks up extra
@@ -336,7 +347,7 @@ _.extend(PackageQuery.prototype, {
   // - git: git URL for this version
   // - installed: true if the package exists in warehouse, and is therefore
   //   available for use offline.
-  // - architectures: (optional) if self.showArchitectures is true, returns an
+  // - architectures: (optional) if self.showOSArchitectures is true, returns an
   //   array of system architectures for which that package is available.
   // - dependencies: (optional) if self.showDependencies is true, return an
   //   array of objects denoting that package's dependencies. The objects have
@@ -359,18 +370,18 @@ _.extend(PackageQuery.prototype, {
       git: versionRecord.git
     };
 
-    // Processing and formating architectures takes time, so we don't want to
+    // Processing and formatting architectures takes time, so we don't want to
     // do this if we don't have to.
-    if (self.showArchitectures) {
+    if (self.showOSArchitectures) {
       var allBuilds = catalog.official.getAllBuilds(self.name, version);
       var architectures = _.map(allBuilds, function (build) {
         return build['buildArchitectures'] &&
           build.buildArchitectures.split('+')[0];
       });
-      data["architectures"] = architectures;
+      data["OSarchitectures"] = architectures;
     }
 
-    // Processing and formating dependencies also takes time, so we would
+    // Processing and formatting dependencies also takes time, so we would
     // rather not do it if we don't have to.
     if (self.showDependencies) {
       data["dependencies"] = formatDependencies(versionRecord.dependencies);
@@ -385,14 +396,13 @@ _.extend(PackageQuery.prototype, {
         version: version
       });
     } catch (e) {
-      // If we get any sort of error that isn't ENOENT, something is wrong, but
-      // the corruption might only extend to a specific version that you will
-      // never use. It would be awkward to fail 'meteor show' forever because of
-      // that. Print an error message, so we can track this down, but don't
-      // throw.
-      if (e.code !== 'ENOENT') {
-        Console.error(e);
-      }
+      // Sometimes, we might be unable to determine if the package is installed
+      // -- maybe we don't have access to the directory, or there is some sort
+      // of disk corruption. This might only extend to one version, so it would
+      // be awkward to fail 'meteor show' altogether. Print an error message (if
+      // it is a permissions error, for example, that's something the user might
+      // want to know), but don't throw.
+      Console.error(e);
       data["installed"] = false;
     }
     return data;
@@ -440,10 +450,20 @@ _.extend(PackageQuery.prototype, {
       data["dependencies"] = formatDependencies(localRecord.dependencies);
     }
 
+    var readmeInfo;
+    main.captureAndExit("=> Errors while reading local packages:", function () {
+      buildmessage.enterJob("reading " + data["directory"], function () {
+        readmeInfo = packageSource.processReadme();
+      });
+    });
+    if (readmeInfo) {
+      data["description"] = readmeInfo.excerpt;
+    }
     return data;
   },
-  // Displays version information from this PackageQuery to the terminal in a human-friendly
-  // format. Takes in an object that contains some, but not all, of the following keys:
+  // Displays version information from this PackageQuery to the terminal in a
+  // human-friendly format. Takes in an object that contains some, but not all,
+  // of the following keys:
   //
   // - name: (mandatory) package Name
   // - version: (mandatory) package version
@@ -456,10 +476,10 @@ _.extend(PackageQuery.prototype, {
   // - directory: source directory of this package.
   // - installed: true if the package exists in warehouse, and is therefore
   //   available for use offline.
-  // - architectures: (optional) if self.showArchitectures is true, returns an
+  // - architectures: if self.showOSArchitectures is true, returns an
   //   array of system architectures for which that package is available.
-  // - dependencies: (mandatory, but may be empty) an array of package
-  //   dependencies, as objects with the following keys:
+  // - dependencies: an array of package dependencies, as objects with the
+  //   following keys:
   //     - packageName: name of the dependency
   //     - constraint: constraint for that dependency
   //     - weak: true if this is a weak dependency.
@@ -491,7 +511,8 @@ _.extend(PackageQuery.prototype, {
     }
 
     // Print dependency information, if the package has any dependencies.
-    if (! _.isEmpty(data.dependencies)) {
+    if (_.has(data, "dependencies") &&
+        ! _.isEmpty(data.dependencies)) {
       Console.info("Depends on:");
       _.each(data.dependencies, function (dep) {
         var depString = dep.name;
@@ -625,19 +646,19 @@ _.extend(PackageQuery.prototype, {
 
 // This class looks up release-related information in the official catalog.
 //
-// The constructor takes in the meta-record from the Releases collection, and an
-// options argument with the following keys:
-//   - version: (optional) specific version of a release that we want to query.
-//   - showHiddenVersions: (optional) show experimental, pre-release & otherwise
+// The constructor takes in an object with the following keys:
+//   - record: (mandatory) the meta-record for this release from the Releases
+//     collection.
+//   - version: specific version of a release that we want to query.
+//   - showHiddenVersions: show experimental, pre-release & otherwise
 //     non-recommended versions of this release.
-var ReleaseQuery = function (record, options) {
+var ReleaseQuery = function (options) {
   var self = this;
-  options = options || {};
 
   // This is the record in the Releases collection. Contains metadata, such as
   // maintainers.
-  self.metaRecord = record;
-  self.name = record.name;
+  self.metaRecord = options.record;
+  self.name = options.record.name;
 
   // We don't always want to show non-recommended release versions.
   self.showHiddenVersions = options.showHiddenVersions;
@@ -774,7 +795,6 @@ _.extend(ReleaseQuery.prototype, {
   // - packages: map of packages for this release version
   _displayVersion: function (data) {
     var self = this;
-    var data = self.data;
     Console.info("Release: " + data.track);
     Console.info("Version: " + data.version);
     Console.info(
@@ -946,11 +966,12 @@ main.registerCommand({
         catalog.official.getPackage(name) ||
         projectContext.localCatalog.getPackage(name);
   if (packageRecord) {
-    query =  new PackageQuery(packageRecord, {
+    query =  new PackageQuery({
+      record: packageRecord,
       version: version,
       projectContext: projectContext,
       showHiddenVersions: options["show-all"],
-      showArchitectures: options.ejson,
+      showOSArchitectures: options.ejson,
       showDependencies: !! version
     });
   }
@@ -961,7 +982,8 @@ main.registerCommand({
   if (! query) {
     var releaseRecord = catalog.official.getReleaseTrack(name);
     if (releaseRecord) {
-      query = new ReleaseQuery(releaseRecord, {
+      query = new ReleaseQuery({
+        record: releaseRecord,
         version: version,
         showHiddenVersions: options["show-all"]
       });
